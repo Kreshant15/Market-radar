@@ -19,9 +19,13 @@ class MarketAnalysis(BaseModel):
     suggested_strategy: str = Field(description="Specific F&O options strategy (e.g. Bull Call Spread, Bear Put Spread, Iron Condor, Short Straddle, Long Put, etc.) tailored to the market direction and VIX sentiment.")
     strategy_hedging: str = Field(description="Risk management rules for this specific trade (e.g. stop loss triggers, profit targets, or leg adjustments)")
     reasoning: str = Field(description="A comprehensive, detailed 2-3 sentence analysis of why this event causes this sentiment, index movement, and VIX volatility.")
+    affected_sector: str = Field(description="Specific sector affected (e.g., 'IT', 'Pharma', 'Banking') or 'Broader Market'")
+    affected_stock: str = Field(description="Specific company mentioned (e.g., 'Reliance', 'TCS') or 'None'")
+    target_ticker: str = Field(description="Yahoo Finance ticker for the specific stock/sector (e.g., 'RELIANCE.NS', '^CNXIT'). Use 'NONE' if no specific stock/sector.")
+    micro_strategy: str = Field(description="Targeted stock-specific options strategy (e.g., 'TCS Bull Call Spread'). 'N/A' if none.")
 
 def analyze_headline(headline: str) -> str:
-    """Uses gemini-3.1-flash-lite to analyze news headlines with strict JSON structures."""
+    """Uses Gemini to analyze news headlines with strict JSON structures."""
     client = genai.Client()
     
     prompt = (
@@ -32,7 +36,11 @@ def analyze_headline(headline: str) -> str:
         f"- If Bullish with a VIX Spike: suggest a Bull Call Spread or Long Calls.\n"
         f"- If Bearish with a VIX Spike: suggest a Bear Put Spread or Long Puts.\n"
         f"- If Neutral with a VIX Crush (premiums melting): suggest an Iron Condor or Short Straddle.\n"
-        f"- If Bullish with a VIX Crush/Stable: suggest a Bull Put Spread (credit spread)."
+        f"- If Bullish with a VIX Crush/Stable: suggest a Bull Put Spread (credit spread).\n"
+        f"MICRO ENGINE RULES:\n"
+        f"- Identify if a specific Sector or Stock is deeply affected.\n"
+        f"- Provide its EXACT Yahoo Finance ticker (e.g., 'RELIANCE.NS', 'HDFCBANK.NS', '^CNXIT' for IT sector). Indian stocks must end with '.NS'.\n"
+        f"- Formulate a targeted micro_strategy for that specific stock/sector."
     )
     
     response = client.models.generate_content(

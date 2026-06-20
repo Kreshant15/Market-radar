@@ -76,7 +76,12 @@ def init_database():
         "vix_level": "NUMERIC",
         "suggested_strategy": "TEXT",
         "verdict_issued": "BOOLEAN DEFAULT FALSE",
-        "pnl_inr": "NUMERIC"
+        "pnl_inr": "NUMERIC",
+        "affected_sector": "TEXT",
+        "affected_stock": "TEXT",
+        "target_ticker": "TEXT",
+        "micro_strategy": "TEXT",
+        "target_spot": "NUMERIC"
     }
     
     for column, col_type in columns_to_add.items():
@@ -114,24 +119,34 @@ def get_live_market_prices():
         print(f"Warning: Failed to fetch live market spot prices: {e}")
         return 0.0, 0.0, 0.0
 
+def get_target_price(ticker):
+    """Fetches live price for dynamically identified stocks or sectors."""
+    if not ticker or ticker == 'NONE': return 0.0
+    try:
+        asset = yf.Ticker(ticker)
+        history = asset.history(period="1d")
+        return float(round(history['Close'].iloc[-1].item(), 2)) if not history.empty else 0.0
+    except Exception as e:
+        print(f"Warning: Failed to fetch target spot for {ticker}: {e}")
+        return 0.0
+
 def is_duplicate_event(cursor, event_name):
-    """Checks the cloud DB for duplicates within the 6-hour cooldown."""
-    threshold_time = datetime.now() - timedelta(hours=COOLDOWN_HOURS)
-    cursor.execute('''
-        SELECT timestamp FROM events 
-        WHERE event = %s AND timestamp > %s 
-        ORDER BY timestamp DESC LIMIT 1
-    ''', (event_name, threshold_time))
+    """Checks whether a headline already exists in the database to avoid duplicates."""
+    cursor.execute(
+        "SELECT 1 FROM events WHERE headline = %s LIMIT 1",
+        (event_name,)
+    )
     return cursor.fetchone() is not None
 
-def save_to_database(conn, cursor, headline, data, nifty_spot, banknifty_spot, vix_level):
+def save_to_database(conn, cursor, headline, data, nifty_spot, banknifty_spot, vix_level, target_spot):
     """Saves the comprehensive analysis and real-time entry spot levels to Neon PostgreSQL."""
     cursor.execute('''
         INSERT INTO events (
             headline, event, event_type, impact_score, confidence, 
-            timestamp, reasoning, nifty_spot, banknifty_spot, vix_level, suggested_strategy
+            timestamp, reasoning, nifty_spot, banknifty_spot, vix_level, suggested_strategy,
+            affected_sector, affected_stock, target_ticker, micro_strategy, target_spot
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ''', (
         headline,
         data.get("event", "Unknown Event"),
@@ -143,11 +158,16 @@ def save_to_database(conn, cursor, headline, data, nifty_spot, banknifty_spot, v
         nifty_spot if nifty_spot > 0 else None,
         banknifty_spot if banknifty_spot > 0 else None,
         vix_level if vix_level > 0 else None,
-        data.get("suggested_strategy", "N/A")
+        data.get("suggested_strategy", "N/A"),
+        data.get("affected_sector", "Broader Market"),
+        data.get("affected_stock", "None"),
+        data.get("target_ticker", "NONE"),
+        data.get("micro_strategy", "N/A"),
+        target_spot if target_spot > 0 else None
     ))
     conn.commit()
 
-def send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level):
+def send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level, target_spot):
     """Sends a color-coded Rich Embed featuring Live Spot levels and suggested F&O Options structures."""
     color = 8421504 # Default Grey
     nifty_dir = data.get('nifty_direction', '').upper()
@@ -170,18 +190,38 @@ def send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level):
             {"name": "Nifty Direction", "value": f"{data.get('nifty_direction')} ({nifty_spot_str})", "inline": True},
             {"name": "BankNifty Direction", "value": f"{data.get('banknifty_direction')} ({banknifty_spot_str})", "inline": True},
             {"name": "Expected India VIX", "value": f"{data.get('vix_impact')} (Spot: {vix_str})", "inline": True},
-            {"name": "📈 Recommended F&O Strategy", "value": f"**{data.get('suggested_strategy', 'N/A')}**", "inline": False},
-            {"name": "🛡️ Risk Management / Hedging Rule", "value": data.get('strategy_hedging', 'N/A'), "inline": False},
-            {"name": "Reasoning", "value": data.get('reasoning'), "inline": False}
+            {"name": "📈 Index F&O Strategy", "value": f"**{data.get('suggested_strategy', 'N/A')}**", "inline": False}
         ],
         "footer": {"text": "Bade Sahab Live Options Desk • 10m Pulse Check"}
     }
+
+    # --- NEW MICRO ENGINE SECTION ---
+    stock = data.get('affected_stock', 'None')
+    sector = data.get('affected_sector', 'Broader Market')
+    ticker = data.get('target_ticker', 'NONE')
     
-    # NEW: Generate the visual chart
+    if stock != 'None' or sector != 'Broader Market':
+        asset_name = stock if stock != 'None' else sector
+        spot_str = f"₹{target_spot:,}" if target_spot > 0 else "N/A"
+        embed["fields"].append({
+            "name": f"🎯 Micro Target: {asset_name} ({ticker})",
+            "value": f"Spot: **{spot_str}**\nStrategy: **{data.get('micro_strategy', 'N/A')}**",
+            "inline": False
+        })
+
+    embed["fields"].extend([
+        {"name": "🛡️ Risk Management / Hedging Rule", "value": data.get('strategy_hedging', 'N/A'), "inline": False},
+        {"name": "Reasoning", "value": data.get('reasoning'), "inline": False}
+    ])
+    
+    # NEW: Generate the visual chart (Dynamic ticker based on sniper!)
+    chart_ticker = ticker if ticker != 'NONE' else "^NSEI"
+    chart_spot = target_spot if ticker != 'NONE' else nifty_spot
+    
     chart_path = chart_generator.create_entry_chart(
-        ticker="^NSEI", 
+        ticker=chart_ticker, 
         direction=nifty_dir, 
-        spot_price=nifty_spot
+        spot_price=chart_spot
     )
 
     try:
@@ -237,8 +277,13 @@ def main():
                 continue
 
             print(f"Processing NEW event: {event_name}")
-            save_to_database(conn, cursor, headline, data, nifty_spot, banknifty_spot, vix_level)
-            send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level)
+            
+            # Fetch specific stock/sector price if identified
+            target_ticker = data.get("target_ticker", "NONE")
+            target_spot = get_target_price(target_ticker)
+
+            save_to_database(conn, cursor, headline, data, nifty_spot, banknifty_spot, vix_level, target_spot)
+            send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level, target_spot)
             
             # Take a 5-second breath to avoid hitting Gemini rate limits
             time.sleep(5)
