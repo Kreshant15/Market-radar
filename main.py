@@ -1,5 +1,6 @@
 import json
 import os
+import time
 import psycopg2
 import requests
 import yfinance as yf
@@ -173,6 +174,9 @@ def main():
             print(f"Processing NEW event: {event_name}")
             save_to_database(conn, cursor, headline, data, nifty_spot, banknifty_spot, vix_level)
             send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level)
+            
+            # Take a 5-second breath to avoid hitting Gemini's Free Tier rate limits (15 RPM)
+            time.sleep(5)
             
         except Exception as e:
             print(f"Error processing {headline}: {e}")
