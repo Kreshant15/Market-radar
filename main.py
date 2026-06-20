@@ -4,7 +4,8 @@ import time
 import psycopg2
 import requests
 import yfinance as yf
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 import news_fetcher
 import analyzer
@@ -14,6 +15,26 @@ load_dotenv()
 DB_URL = os.getenv("DATABASE_URL")
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 COOLDOWN_HOURS = 6
+
+def is_market_open():
+    """Checks if the Indian stock market is currently open (Mon-Fri, 9:00 AM - 3:30 PM IST)."""
+    ist = ZoneInfo("Asia/Kolkata")
+    now_ist = datetime.now(ist)
+    
+    # Check for weekends (5 = Saturday, 6 = Sunday)
+    if now_ist.weekday() >= 5:
+        print(f"🛡️ Market Shield: It is the weekend ({now_ist.strftime('%A')}). Sleeping...")
+        return False
+        
+    # Check for market hours (09:00 to 15:30)
+    market_open = time(9, 0)
+    market_close = time(15, 30)
+    
+    if not (market_open <= now_ist.time() <= market_close):
+        print(f"🛡️ Market Shield: Outside market hours ({now_ist.strftime('%H:%M')} IST). Sleeping...")
+        return False
+        
+    return True
 
 def init_database():
     """Connects to Neon PostgreSQL, creates table, and performs auto-migration for new columns."""
@@ -67,10 +88,10 @@ def get_live_market_prices():
         banknifty_history = banknifty.history(period="1d")
         vix_history = vix.history(period="1d")
         
-        # FIX: Explicitly cast yfinance numpy.float64 types to native Python float()
-        nifty_price = float(round(nifty_history['Close'].iloc[-1], 2)) if not nifty_history.empty else 0.0
-        banknifty_price = float(round(banknifty_history['Close'].iloc[-1], 2)) if not banknifty_history.empty else 0.0
-        vix_level = float(round(vix_history['Close'].iloc[-1], 2)) if not vix_history.empty else 0.0
+        # FIX: Using .item() to safely strip ALL numpy/pandas data types into pure Python types
+        nifty_price = float(round(nifty_history['Close'].iloc[-1].item(), 2)) if not nifty_history.empty else 0.0
+        banknifty_price = float(round(banknifty_history['Close'].iloc[-1].item(), 2)) if not banknifty_history.empty else 0.0
+        vix_level = float(round(vix_history['Close'].iloc[-1].item(), 2)) if not vix_history.empty else 0.0
         
         return nifty_price, banknifty_price, vix_level
     except Exception as e:
@@ -147,6 +168,10 @@ def send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level):
         print(f"Failed to send Discord alert: {e}")
 
 def main():
+    if not is_market_open():
+        print("Exiting script to preserve API quotas and prevent off-hours spam.")
+        return
+
     print("Connecting to Cloud Database...")
     conn = init_database()
     cursor = conn.cursor()
