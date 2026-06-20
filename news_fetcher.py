@@ -4,8 +4,8 @@ import json
 def fetch_top_headlines():
     # List of different RSS feeds to scan
     rss_urls = [
-        # 1. Your expanded Google News Aggregator (changed from 'when:48h' to 'when:12h')
-        "https://news.google.com/rss/search?q=Nifty+OR+BankNifty+OR+RBI+OR+SEBI+OR+Adani+OR+Reliance+OR+HDFC+when:12h&hl=en-IN&gl=IN&ceid=IN:en",
+        # 1. Your expanded Google News Aggregator (Restored to when:1h for Live Trading)
+        "https://news.google.com/rss/search?q=Nifty+OR+BankNifty+OR+RBI+OR+SEBI+OR+Adani+OR+Reliance+OR+HDFC+when:1h&hl=en-IN&gl=IN&ceid=IN:en",
         
         # 2. Livemint Markets RSS
         "https://www.livemint.com/rss/markets",
