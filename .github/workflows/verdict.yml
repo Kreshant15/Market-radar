@@ -1,0 +1,30 @@
+name: Post-Market Performance Verdict
+
+on:
+  workflow_dispatch: # Allows manual trigger testing
+  schedule:
+    # 10:15 UTC translates to exactly 3:45 PM IST (right after the market closes)
+    # Runs Monday through Friday
+    - cron: '15 10 * * 1-5'
+
+jobs:
+  run-verdict:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+        
+      - name: Run Verdict Engine
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python verdict_engine.py

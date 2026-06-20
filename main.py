@@ -60,7 +60,8 @@ def init_database():
         "nifty_spot": "NUMERIC",
         "banknifty_spot": "NUMERIC",
         "vix_level": "NUMERIC",
-        "suggested_strategy": "TEXT"
+        "suggested_strategy": "TEXT",
+        "verdict_issued": "BOOLEAN DEFAULT FALSE"
     }
     
     for column, col_type in columns_to_add.items():
