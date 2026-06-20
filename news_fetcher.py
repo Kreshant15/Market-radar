@@ -2,19 +2,30 @@ import feedparser
 import json
 
 def fetch_top_headlines():
-    # Google News RSS search query targeting business or geopolitics
-    rss_url = "https://news.google.com/rss/search?q=Nifty+OR+RBI+OR+adani+OR+reliance+OR+India+macroeconomics+when:1h&hl=en-IN&gl=IN&ceid=IN:en"
+    # List of different RSS feeds to scan
+    rss_urls = [
+        # 1. Your expanded Google News Aggregator
+        "https://news.google.com/rss/search?q=Nifty+OR+BankNifty+OR+RBI+OR+SEBI+OR+Adani+OR+Reliance+OR+HDFC+when:1h&hl=en-IN&gl=IN&ceid=IN:en",
+        
+        # 2. Livemint Markets RSS
+        "https://www.livemint.com/rss/markets",
+        
+        # 3. Economic Times Markets RSS
+        "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms"
+    ]
     
-    # Parse the RSS feed data
-    feed = feedparser.parse(rss_url)
+    headlines = []
     
-    # Extract the title from the first 5 entries into a Python list
-    headlines = [entry.title for entry in feed.entries[:5]]
-    
+    # Loop through each URL and grab the top 3 headlines from each
+    for url in rss_urls:
+        feed = feedparser.parse(url)
+        for entry in feed.entries[:3]:
+            # Basic check to avoid exact identical titles in the same run
+            if entry.title not in headlines: 
+                headlines.append(entry.title)
+                
     return headlines
 
 if __name__ == "__main__":
-    top_5_news = fetch_top_headlines()
-    
-    # Outputting the list formatted with indentation
-    print(json.dumps(top_5_news, indent=1))
+    top_news = fetch_top_headlines()
+    print(json.dumps(top_news, indent=1))
