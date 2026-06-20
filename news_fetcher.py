@@ -2,16 +2,22 @@ import feedparser
 import json
 
 def fetch_top_headlines():
-    # List of different RSS feeds to scan
+    # Expanded list of RSS feeds for Global, Crypto, and Domestic live tracking
     rss_urls = [
-        # 1. Your expanded Google News Aggregator (Restored to when:1h for Live Trading)
-        "https://news.google.com/rss/search?q=Nifty+OR+BankNifty+OR+RBI+OR+SEBI+OR+Adani+OR+Reliance+OR+HDFC+when:1h&hl=en-IN&gl=IN&ceid=IN:en",
+        # 1. Domestic & Core Market News (India Region)
+        "https://news.google.com/rss/search?q=Nifty+OR+BankNifty+OR+RBI+OR+Repo+Rate+OR+SEBI+when:1h&hl=en-IN&gl=IN&ceid=IN:en",
         
-        # 2. Livemint Markets RSS
+        # 2. Global Macro & US Fed (US Region for better Fed/NFP coverage)
+        "https://news.google.com/rss/search?q=US+Fed+OR+FOMC+OR+Jerome+Powell+OR+Crude+Oil+OR+CPI+when:1h&hl=en-US&gl=US&ceid=US:en",
+        
+        # 3. Livemint Markets RSS
         "https://www.livemint.com/rss/markets",
         
-        # 3. Economic Times Markets RSS
-        "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms"
+        # 4. Yahoo Finance Global Top Stories
+        "https://finance.yahoo.com/news/rssindex",
+        
+        # 5. CoinDesk RSS (Live Bitcoin / Crypto updates)
+        "https://www.coindesk.com/arc/outboundfeeds/rss/"
     ]
     
     headlines = []
