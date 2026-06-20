@@ -21,7 +21,7 @@ class MarketAnalysis(BaseModel):
     reasoning: str = Field(description="A comprehensive, detailed 2-3 sentence analysis of why this event causes this sentiment, index movement, and VIX volatility.")
 
 def analyze_headline(headline: str) -> str:
-    """Uses Gemini 2.5 Flash to analyze news headlines with strict JSON structures."""
+    """Uses Gemini 1.5 Flash to analyze news headlines with strict JSON structures."""
     client = genai.Client()
     
     prompt = (
@@ -36,7 +36,7 @@ def analyze_headline(headline: str) -> str:
     )
     
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-1.5-flash",
         contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
