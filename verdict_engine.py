@@ -25,7 +25,6 @@ def fetch_pending_verdicts():
     conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
     
-    # We look for events older than 24 hours but newer than 5 days (to ignore ancient news)
     cursor.execute('''
         SELECT id, event, headline, nifty_direction, nifty_spot, suggested_strategy
         FROM events
@@ -38,27 +37,40 @@ def fetch_pending_verdicts():
     events = cursor.fetchall()
     return conn, cursor, events
 
-def send_verdict_alert(event_data, current_nifty):
-    """Calculates point movement and sends the HIT/MISS card to Discord."""
+def process_and_send_verdict(conn, cursor, event_data, current_nifty):
+    """Calculates P&L, updates the portfolio, and sends the Discord card."""
     event_id, event_name, headline, direction, entry_price, strategy = event_data
     entry_price = float(entry_price)
     direction = direction.upper()
     
-    # Calculate performance
+    # Calculate point movement
     if direction == "BULLISH":
         points_captured = current_nifty - entry_price
-        hit = points_captured > 0
     elif direction == "BEARISH":
         points_captured = entry_price - current_nifty
-        hit = points_captured > 0
-    else: # NEUTRAL
-        points_captured = abs(current_nifty - entry_price)
-        hit = points_captured < 100 # Considered a hit if it stayed within a tight 100pt range
+    else: # NEUTRAL (Assumes Iron Condor capturing decay within 100pt range)
+        points_captured = 100 - abs(current_nifty - entry_price)
         
+    hit = points_captured > 0
+    
+    # Simulate P&L based on 1 Nifty Lot (25 qty) and 1.0 Delta (Futures eqv)
+    lot_size = 25
+    pnl_inr = round(points_captured * lot_size, 2)
+    
+    # Fetch current portfolio balance
+    cursor.execute('SELECT current_balance FROM portfolio WHERE id = 1')
+    current_balance = float(cursor.fetchone()[0])
+    new_balance = current_balance + pnl_inr
+    
+    # Update Database
+    cursor.execute('UPDATE portfolio SET current_balance = %s, updated_at = NOW() WHERE id = 1', (new_balance,))
+    cursor.execute('UPDATE events SET verdict_issued = TRUE, pnl_inr = %s WHERE id = %s', (pnl_inr, event_id))
+    conn.commit()
+
     # Formatting the visual embed
     color = 5763719 if hit else 15548997 # Green if Hit, Red if Miss
     status_icon = "✅ HIT" if hit else "❌ MISS"
-    point_str = f"+{points_captured:,.2f}" if hit else f"{points_captured:,.2f}"
+    pnl_str = f"+₹{pnl_inr:,.2f}" if hit else f"-₹{abs(pnl_inr):,.2f}"
     
     embed = {
         "title": f"{status_icon}! Verdict: {event_name}",
@@ -66,17 +78,18 @@ def send_verdict_alert(event_data, current_nifty):
         "color": color,
         "fields": [
             {"name": "Strategy Triggered", "value": strategy, "inline": False},
-            {"name": "Predicted Direction", "value": direction, "inline": True},
             {"name": "Entry Nifty Spot", "value": f"₹{entry_price:,.2f}", "inline": True},
             {"name": "Current Nifty Spot", "value": f"₹{current_nifty:,.2f}", "inline": True},
-            {"name": "Index Movement", "value": f"**{point_str} points** in direction of trade", "inline": False}
+            {"name": "Index Movement", "value": f"{abs(points_captured):,.2f} points", "inline": True},
+            {"name": "💸 Trade P&L (1 Lot)", "value": f"**{pnl_str}**", "inline": True},
+            {"name": "🏦 Virtual Fund Balance", "value": f"**₹{new_balance:,.2f}**", "inline": True}
         ],
-        "footer": {"text": "Bade Sahab Performance Tracker • 24h Review"}
+        "footer": {"text": "Bade Sahab Performance Tracker • Virtual Ledger"}
     }
     
     try:
         requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]})
-        print(f"Sent verdict for {event_name}")
+        print(f"Sent verdict for {event_name} | P&L: {pnl_str}")
     except Exception as e:
         print(f"Failed to send verdict Discord alert: {e}")
 
@@ -105,11 +118,7 @@ def main():
         return
         
     for event_data in events:
-        send_verdict_alert(event_data, current_nifty)
-        
-        # Mark as issued so we don't spam it tomorrow
-        cursor.execute('UPDATE events SET verdict_issued = TRUE WHERE id = %s', (event_data[0],))
-        conn.commit()
+        process_and_send_verdict(conn, cursor, event_data, current_nifty)
         
     cursor.close()
     conn.close()

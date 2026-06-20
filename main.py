@@ -55,13 +55,28 @@ def init_database():
         )
     ''')
     
+    # FIX: Initialize the Virtual Portfolio table and seed it with ₹10,00,000
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS portfolio (
+            id SERIAL PRIMARY KEY,
+            current_balance NUMERIC NOT NULL,
+            updated_at TIMESTAMP NOT NULL
+        )
+    ''')
+    cursor.execute('SELECT COUNT(*) FROM portfolio')
+    if cursor.fetchone()[0] == 0:
+        print("Initializing Virtual Hedge Fund with ₹10,00,000...")
+        cursor.execute('INSERT INTO portfolio (id, current_balance, updated_at) VALUES (1, 1000000.0, NOW())')
+        conn.commit()
+    
     # 2. Migration check: Automatically add new F&O tracking columns if they don't exist
     columns_to_add = {
         "nifty_spot": "NUMERIC",
         "banknifty_spot": "NUMERIC",
         "vix_level": "NUMERIC",
         "suggested_strategy": "TEXT",
-        "verdict_issued": "BOOLEAN DEFAULT FALSE"
+        "verdict_issued": "BOOLEAN DEFAULT FALSE",
+        "pnl_inr": "NUMERIC"
     }
     
     for column, col_type in columns_to_add.items():
