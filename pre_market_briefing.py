@@ -14,9 +14,9 @@ def fetch_overnight_events():
     conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
     
-    # Query events from the last 24 hours, ordered by most impactful
+    # Removed 'nifty_direction' from the SELECT query to match our database schema
     cursor.execute('''
-        SELECT event_type, headline, impact_score, nifty_direction, reasoning
+        SELECT event_type, headline, impact_score, reasoning
         FROM events
         WHERE timestamp >= NOW() - INTERVAL '24 hours'
         ORDER BY impact_score DESC
@@ -32,8 +32,8 @@ def generate_briefing(events):
     if not events:
         return "**Expected Open:** Flat\n**Market Sentiment:** Neutral\n\nNo significant macroeconomic or market events recorded overnight. Expect a technically driven open."
 
-    # Format the events into a text list for the AI to read
-    events_text = "\n".join([f"- [{e[0]}] (Score: {e[2]}/100 | Nifty: {e[3]}): {e[1]}" for e in events])
+    # Updated the index mapping: e[0]=type, e[1]=headline, e[2]=score, e[3]=reasoning
+    events_text = "\n".join([f"- [{e[0]}] (Score: {e[2]}/100): {e[1]} - Context: {e[3]}" for e in events])
 
     client = genai.Client()
     prompt = (
