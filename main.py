@@ -193,9 +193,9 @@ def send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level):
         print(f"Failed to send Discord alert: {e}")
 
 def main():
-    # if not is_market_open():
-    #     print("Exiting script to preserve API quotas and prevent off-hours spam.")
-    #     return
+    if not is_market_open():
+        print("Exiting script to preserve API quotas and prevent off-hours spam.")
+        return
 
     print("Connecting to Cloud Database...")
     conn = init_database()
