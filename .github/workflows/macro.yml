@@ -1,0 +1,29 @@
+name: Macro Predictive Radar
+
+on:
+  workflow_dispatch: # Allows manual trigger testing
+  schedule:
+    # Runs every morning at 02:30 UTC, which is EXACTLY 08:00 AM IST
+    # This runs right before your 8:30 AM Pre-Market briefing!
+    - cron: '30 2 * * *'
+
+jobs:
+  run-macro-radar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+        
+      - name: Run Macro Predictor
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python macro_predictor.py
