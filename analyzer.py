@@ -1,56 +1,48 @@
 import os
-from typing import Literal
+import json
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
 
-load_dotenv() 
+load_dotenv()
 
-# Define the category choices
-MarketCategory = Literal[
-    "RBI",
-    "FED",
-    "OIL",
-    "GEOPOLITICAL",
-    "GOVERNMENT_POLICY",
-    "ELECTION",
-    "BANKING",
-    "GLOBAL_MARKETS",
-    "OTHER"
-]
-
+# Define the structured output schema for options strategies
 class MarketAnalysis(BaseModel):
-    event: str = Field(description="A standardized name for this specific news event to group similar stories together (e.g., 'Israel-Iran Conflict').")
-    event_type: MarketCategory = Field(description="Classify the headline into exactly one of the allowed categories based on its primary subject matter.")
-    impact_score: int = Field(description="Impact score from 0 (no impact) to 100 (extreme impact).")
-    is_high_impact: bool = Field(description="Must be strictly true if impact_score is 80 or higher, otherwise false.")
-    nifty_direction: str = Field(description="Expected Nifty 50 direction (e.g., Bullish, Bearish, Neutral).")
-    banknifty_direction: str = Field(description="Expected BankNifty direction.")
-    vix_impact: str = Field(description="Expected impact on India VIX (e.g., Spike, Crush, Flat).")
-    confidence: int = Field(description="Confidence percentage of this forecast (0 to 100).")
-    summary: str = Field(description="A brief 1-2 sentence summary of the news.")
-    reasoning: str = Field(description="Reasoning behind the given F&O directions and impact scores.")
+    event: str = Field(description="Short concise name of the event")
+    event_type: str = Field(description="Must be one of: MACRO, REGULATORY, CORPORATE, GLOBAL, OTHER")
+    impact_score: int = Field(description="A score from 0 (no impact) to 100 (catastrophic/historic market-moving event)")
+    confidence: int = Field(description="How confident you are in this analysis from 0 to 100")
+    nifty_direction: str = Field(description="Must be: BULLISH, BEARISH, or NEUTRAL")
+    banknifty_direction: str = Field(description="Must be: BULLISH, BEARISH, or NEUTRAL")
+    vix_impact: str = Field(description="Expected impact on India VIX. Must be: SPIKE, CRUSH, or STABLE")
+    suggested_strategy: str = Field(description="Specific F&O options strategy (e.g. Bull Call Spread, Bear Put Spread, Iron Condor, Short Straddle, Long Put, etc.) tailored to the market direction and VIX sentiment.")
+    strategy_hedging: str = Field(description="Risk management rules for this specific trade (e.g. stop loss triggers, profit targets, or leg adjustments)")
+    reasoning: str = Field(description="A comprehensive, detailed 2-3 sentence analysis of why this event causes this sentiment, index movement, and VIX volatility.")
 
 def analyze_headline(headline: str) -> str:
+    """Uses Gemini 2.5 Flash to analyze news headlines with strict JSON structures."""
     client = genai.Client()
-
-    system_instruction = (
-        "You are a professional Indian macro and F&O analyst. "
-        "Analyze the provided global or domestic news headline and determine its expected "
-        "impact on the Indian equity derivatives market (Nifty, BankNifty, and India VIX). "
-        "Your output must be strictly in the requested JSON format."
+    
+    prompt = (
+        f"Analyze the following Indian financial news headline and evaluate its potential impact "
+        f"on the Nifty 50, Bank Nifty, India VIX, and options trading positions.\n\n"
+        f"Headline: {headline}\n\n"
+        f"When suggesting an options strategy:\n"
+        f"- If Bullish with a VIX Spike: suggest a Bull Call Spread or Long Calls.\n"
+        f"- If Bearish with a VIX Spike: suggest a Bear Put Spread or Long Puts.\n"
+        f"- If Neutral with a VIX Crush (premiums melting): suggest an Iron Condor or Short Straddle.\n"
+        f"- If Bullish with a VIX Crush/Stable: suggest a Bull Put Spread (credit spread)."
     )
-
+    
     response = client.models.generate_content(
         model="gemini-2.5-flash",
-        contents=headline,
+        contents=prompt,
         config=types.GenerateContentConfig(
-            system_instruction=system_instruction,
             response_mime_type="application/json",
             response_schema=MarketAnalysis,
-            temperature=0.1, 
+            temperature=0.2, # Lower temperature for analytical and consistent results
         ),
     )
-
+    
     return response.text
