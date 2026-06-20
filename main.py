@@ -9,9 +9,9 @@ from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 import news_fetcher
 import analyzer
+import chart_generator
 
 # Load environment variables
-load_dotenv()
 DB_URL = os.getenv("DATABASE_URL")
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 COOLDOWN_HOURS = 6
@@ -162,8 +162,32 @@ def send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level):
         "footer": {"text": "Bade Sahab Live Options Desk • 10m Pulse Check"}
     }
     
+    # NEW: Generate the visual chart
+    chart_path = chart_generator.create_entry_chart(
+        ticker="^NSEI", 
+        direction=nifty_dir, 
+        spot_price=nifty_spot
+    )
+
     try:
-        requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]})
+        if chart_path and os.path.exists(chart_path):
+            # Tell Discord to expect an image attachment named 'chart.png'
+            embed["image"] = {"url": f"attachment://{os.path.basename(chart_path)}"}
+            payload = {"embeds": [embed]}
+            
+            # Open the image file and send it alongside the JSON payload
+            with open(chart_path, "rb") as f:
+                requests.post(
+                    DISCORD_WEBHOOK_URL,
+                    data={"payload_json": json.dumps(payload)},
+                    files={"file": (os.path.basename(chart_path), f, "image/png")}
+                )
+            # Clean up the image from the server after sending
+            os.remove(chart_path)
+        else:
+            # Fallback if chart generation fails
+            requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]})
+            
         print("Discord alert sent successfully.")
     except Exception as e:
         print(f"Failed to send Discord alert: {e}")
