@@ -63,14 +63,14 @@ def get_live_market_prices():
         banknifty = yf.Ticker("^NSEBANK")
         vix = yf.Ticker("^INDIAVIX")
         
-        # Pulling regularMarketPrice safely with defaults
         nifty_history = nifty.history(period="1d")
         banknifty_history = banknifty.history(period="1d")
         vix_history = vix.history(period="1d")
         
-        nifty_price = round(nifty_history['Close'].iloc[-1], 2) if not nifty_history.empty else 0.0
-        banknifty_price = round(banknifty_history['Close'].iloc[-1], 2) if not banknifty_history.empty else 0.0
-        vix_level = round(vix_history['Close'].iloc[-1], 2) if not vix_history.empty else 0.0
+        # FIX: Explicitly cast yfinance numpy.float64 types to native Python float()
+        nifty_price = float(round(nifty_history['Close'].iloc[-1], 2)) if not nifty_history.empty else 0.0
+        banknifty_price = float(round(banknifty_history['Close'].iloc[-1], 2)) if not banknifty_history.empty else 0.0
+        vix_level = float(round(vix_history['Close'].iloc[-1], 2)) if not vix_history.empty else 0.0
         
         return nifty_price, banknifty_price, vix_level
     except Exception as e:
@@ -175,11 +175,13 @@ def main():
             save_to_database(conn, cursor, headline, data, nifty_spot, banknifty_spot, vix_level)
             send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level)
             
-            # Take a 5-second breath to avoid hitting Gemini's Free Tier rate limits (15 RPM)
+            # Take a 5-second breath to avoid hitting Gemini rate limits
             time.sleep(5)
             
         except Exception as e:
             print(f"Error processing {headline}: {e}")
+            # FIX: Unlock the database if a transaction fails so the next headline can still be processed
+            conn.rollback()
 
     cursor.close()
     conn.close()
