@@ -9,9 +9,42 @@ load_dotenv()
 DB_URL = os.getenv("DATABASE_URL")
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
+def init_database_if_needed(conn, cursor):
+    """Gracefully ensures all tables and portfolio rows exist before running the report."""
+    # 1. Create portfolio table if it doesn't exist
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS portfolio (
+            id SERIAL PRIMARY KEY,
+            current_balance NUMERIC NOT NULL,
+            updated_at TIMESTAMP NOT NULL
+        )
+    ''')
+    conn.commit()
+    
+    # 2. Seed portfolio if it has no rows
+    cursor.execute('SELECT COUNT(*) FROM portfolio')
+    if cursor.fetchone()[0] == 0:
+        print("Migrating: Initializing Virtual Hedge Fund with ₹10,00,000...")
+        cursor.execute('INSERT INTO portfolio (id, current_balance, updated_at) VALUES (1, 1000000.0, NOW())')
+        conn.commit()
+
+    # 3. Ensure the events table has the necessary P&L column
+    cursor.execute("""
+        SELECT COUNT(*) 
+        FROM information_schema.columns 
+        WHERE table_name='events' AND column_name='pnl_inr'
+    """)
+    if cursor.fetchone()[0] == 0:
+        print("Migrating: Adding missing column 'pnl_inr' to events table...")
+        cursor.execute("ALTER TABLE events ADD COLUMN pnl_inr NUMERIC;")
+        conn.commit()
+
 def generate_weekly_report():
     conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
+    
+    # Self-repair: Ensure everything is set up in the database first
+    init_database_if_needed(conn, cursor)
     
     # Fetch portfolio balance
     cursor.execute('SELECT current_balance FROM portfolio WHERE id = 1')
@@ -28,7 +61,24 @@ def generate_weekly_report():
     trades = cursor.fetchall()
     
     if not trades:
-        print("No trades closed this week.")
+        print("No trades closed this week. Fund balance is stable.")
+        # Send a clean weekend status message instead of crashing
+        embed = {
+            "title": "📊 Weekly Fund Tear Sheet",
+            "color": 8421504,
+            "description": "No virtual trades were settled this week. The fund remains in cash.",
+            "fields": [
+                {"name": "🏦 Total Virtual AUM", "value": f"**₹{current_balance:,.2f}**", "inline": False}
+            ],
+            "footer": {"text": "Bade Sahab Quantitative Fund"}
+        }
+        try:
+            requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]})
+        except Exception as e:
+            print(f"Error sending empty status to Discord: {e}")
+        
+        cursor.close()
+        conn.close()
         return
         
     total_trades = len(trades)
