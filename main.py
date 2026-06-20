@@ -81,7 +81,8 @@ def init_database():
         "affected_stock": "TEXT",
         "target_ticker": "TEXT",
         "micro_strategy": "TEXT",
-        "target_spot": "NUMERIC"
+        "target_spot": "NUMERIC",
+        "trap_checked": "BOOLEAN DEFAULT FALSE"
     }
     
     for column, col_type in columns_to_add.items():
