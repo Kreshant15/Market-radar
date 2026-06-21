@@ -25,6 +25,6 @@ jobs:
       - name: Run Morning Briefing
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_PREMARKET }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python pre_market_briefing.py

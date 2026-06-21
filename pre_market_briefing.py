@@ -7,7 +7,7 @@ from google import genai
 
 load_dotenv()
 DB_URL = os.getenv("DATABASE_URL")
-DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+DISCORD_WEBHOOK_PREMARKET = os.getenv("DISCORD_WEBHOOK_PREMARKET")
 
 def fetch_overnight_events():
     """Fetches all high-impact events from the last 24 hours."""
@@ -64,7 +64,7 @@ def send_discord_briefing(briefing_text):
     
     payload = {"embeds": [embed]}
     try:
-        requests.post(DISCORD_WEBHOOK_URL, json=payload)
+        requests.post(DISCORD_WEBHOOK_PREMARKET, json=payload)
     except Exception as e:
         print(f"Failed to send Discord alert: {e}")
 

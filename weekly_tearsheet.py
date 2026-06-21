@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 DB_URL = os.getenv("DATABASE_URL")
-DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+DISCORD_WEBHOOK_TEARSHEET = os.getenv("DISCORD_WEBHOOK_TEARSHEET")
 
 def init_database_if_needed(conn, cursor):
     """Gracefully ensures all tables and portfolio rows exist before running the report."""
@@ -73,7 +73,7 @@ def generate_weekly_report():
             "footer": {"text": "Bade Sahab Quantitative Fund"}
         }
         try:
-            requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]})
+            requests.post(DISCORD_WEBHOOK_TEARSHEET, json={"embeds": [embed]})
         except Exception as e:
             print(f"Error sending empty status to Discord: {e}")
         
@@ -126,7 +126,7 @@ def generate_weekly_report():
     try:
         with open(chart_path, "rb") as f:
             requests.post(
-                DISCORD_WEBHOOK_URL,
+                DISCORD_WEBHOOK_TEARSHEET,
                 data={"payload_json": json.dumps({"embeds": [embed]})},
                 files={"file": ("weekly_equity.png", f, "image/png")}
             )

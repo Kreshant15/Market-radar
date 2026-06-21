@@ -23,6 +23,6 @@ jobs:
         
       - name: Check for Divergence Traps
         env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_WEBHOOK_TRAP: ${{ secrets.DISCORD_WEBHOOK_TRAP }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python trap_detector.py

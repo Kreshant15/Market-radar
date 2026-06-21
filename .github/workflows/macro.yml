@@ -1,10 +1,8 @@
 name: Macro Predictive Radar
 
 on:
-  workflow_dispatch: # Allows manual trigger testing
+  workflow_dispatch:
   schedule:
-    # Runs every morning at 02:30 UTC, which is EXACTLY 08:00 AM IST
-    # This runs right before your 8:30 AM Pre-Market briefing!
     - cron: '30 2 * * *'
 
 jobs:
@@ -25,5 +23,5 @@ jobs:
       - name: Run Macro Predictor
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_WEBHOOK_MACRO: ${{ secrets.DISCORD_WEBHOOK_MACRO }}
         run: python macro_predictor.py

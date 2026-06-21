@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 DB_URL = os.getenv("DATABASE_URL")
-DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+DISCORD_WEBHOOK_LEDGER = os.getenv("DISCORD_WEBHOOK_LEDGER")
 
 def get_live_nifty():
     """Fetches the current real-time spot price for Nifty 50."""
@@ -88,7 +88,7 @@ def process_and_send_verdict(conn, cursor, event_data, current_nifty):
     }
     
     try:
-        requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]})
+        requests.post(DISCORD_WEBHOOK_LEDGER, json={"embeds": [embed]})
         print(f"Sent verdict for {event_name} | P&L: {pnl_str}")
     except Exception as e:
         print(f"Failed to send verdict Discord alert: {e}")

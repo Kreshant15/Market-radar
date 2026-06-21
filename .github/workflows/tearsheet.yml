@@ -3,7 +3,7 @@ name: Friday Portfolio Tear Sheet
 on:
   workflow_dispatch:
   schedule:
-    - cron: '30 10 * * 5' # 4:00 PM IST on Fridays
+    - cron: '30 10 * * 5'
 
 jobs:
   run-tearsheet:
@@ -22,6 +22,6 @@ jobs:
         
       - name: Generate Tear Sheet
         env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_WEBHOOK_TEARSHEET: ${{ secrets.DISCORD_WEBHOOK_TEARSHEET }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python weekly_tearsheet.py

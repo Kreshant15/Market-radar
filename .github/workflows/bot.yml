@@ -1,9 +1,9 @@
 name: Market Radar Bot
 
 on:
-  workflow_dispatch: # Allows manual API triggering
-  repository_dispatch:
-    types: [external-ping] # Allows webhook triggering
+  workflow_dispatch:
+  schedule:
+    - cron: '*/10 * * * *'
 
 jobs:
   run-bot:
@@ -23,6 +23,7 @@ jobs:
       - name: Run Market Bot
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_WEBHOOK_FORADAR: ${{ secrets.DISCORD_WEBHOOK_FORADAR }}
+          DISCORD_WEBHOOK_SECTOR: ${{ secrets.DISCORD_WEBHOOK_SECTOR }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python main.py

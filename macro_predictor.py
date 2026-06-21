@@ -9,7 +9,7 @@ from google.genai import types
 from pydantic import BaseModel, Field
 
 load_dotenv()
-DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+DISCORD_WEBHOOK_MACRO = os.getenv("DISCORD_WEBHOOK_MACRO")
 
 # Define the strict structured output requested by your friends
 class MacroEvent(BaseModel):
@@ -101,7 +101,7 @@ def send_macro_alert(event):
     }
     
     try:
-        requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]})
+        requests.post(DISCORD_WEBHOOK_MACRO, json={"embeds": [embed]})
         print(f"Sent macro advance warning for {event.get('event_name')}")
     except Exception as e:
         print(f"Failed to send Discord alert: {e}")
