@@ -12,8 +12,9 @@ import chart_generator
 
 load_dotenv()
 DB_URL = os.getenv("DATABASE_URL")
-WEBHOOK_FORADAR = os.getenv("DISCORD_WEBHOOK_FORADAR")
-WEBHOOK_SECTOR = os.getenv("DISCORD_WEBHOOK_SECTOR")
+WEBHOOK_INDIAN = os.getenv("DISCORD_WEBHOOK_FORADAR")
+WEBHOOK_HEAVYWEIGHT = os.getenv("DISCORD_WEBHOOK_SECTOR")
+WEBHOOK_GLOBAL = os.getenv("DISCORD_WEBHOOK_GLOBAL")
 COOLDOWN_HOURS = 6
 
 # 🛑 NOTE: is_market_open() shield has been REMOVED. Bot now runs 24/7/365.
@@ -35,7 +36,7 @@ def init_database():
         "suggested_strategy": "TEXT", "verdict_issued": "BOOLEAN DEFAULT FALSE", "pnl_inr": "NUMERIC",
         "affected_sector": "TEXT", "affected_stock": "TEXT", "target_ticker": "TEXT",
         "micro_strategy": "TEXT", "target_spot": "NUMERIC", "trap_checked": "BOOLEAN DEFAULT FALSE",
-        "direction_probability": "TEXT" # New Probability Column
+        "direction_probability": "TEXT", "event_region": "TEXT"
     }
     
     for column, col_type in columns_to_add.items():
@@ -73,20 +74,21 @@ def is_duplicate_event(cursor, event_name, headline):
 def save_to_database(conn, cursor, headline, data, nifty_spot, banknifty_spot, vix_level, target_spot):
     cursor.execute('''
         INSERT INTO events (headline, event, event_type, impact_score, confidence, timestamp, reasoning, 
-        nifty_spot, banknifty_spot, vix_level, suggested_strategy, affected_sector, affected_stock, target_ticker, micro_strategy, target_spot, direction_probability)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        nifty_spot, banknifty_spot, vix_level, suggested_strategy, affected_sector, affected_stock, target_ticker, micro_strategy, target_spot, direction_probability, event_region)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ''', (
         headline, data.get("event", "Unknown"), data.get("event_type", "OTHER"), data.get("impact_score", 0), data.get("confidence", 0),
         datetime.now(), data.get("reasoning", ""), nifty_spot if nifty_spot > 0 else None, banknifty_spot if banknifty_spot > 0 else None,
         vix_level if vix_level > 0 else None, data.get("suggested_strategy", "N/A"), data.get("affected_sector", "Broader Market"),
         data.get("affected_stock", "None"), data.get("target_ticker", "NONE"), data.get("micro_strategy", "N/A"), target_spot if target_spot > 0 else None,
-        data.get("direction_probability", "N/A")
+        data.get("direction_probability", "N/A"), data.get("event_region", "INDIAN")
     ))
     conn.commit()
 
 def send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level, target_spot):
     nifty_dir = data.get('nifty_direction', '').upper()
     prob = data.get('direction_probability', 'N/A')
+    region = data.get('event_region', 'INDIAN').upper()
     color = 5763719 if nifty_dir == 'BULLISH' else 15548997 if nifty_dir == 'BEARISH' else 8421504
 
     # Format spot strings, noting if market is closed (e.g. Sunday)
@@ -122,7 +124,18 @@ def send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level, ta
     if chart_spot > 0:
         chart_path = chart_generator.create_entry_chart(chart_ticker, nifty_dir, chart_spot)
         
-    target_webhook = WEBHOOK_SECTOR if (stock != 'None' or sector != 'Broader Market') else WEBHOOK_FORADAR
+    # SMART ROUTING: Send to correct channel based on AI Region Classification
+    if region == "GLOBAL":
+        target_webhook = WEBHOOK_GLOBAL
+    elif region == "HEAVYWEIGHT":
+        target_webhook = WEBHOOK_HEAVYWEIGHT
+    else:
+        target_webhook = WEBHOOK_INDIAN
+
+    # Ensure we don't crash if a webhook isn't set up yet
+    if not target_webhook:
+        print(f"Warning: Webhook for {region} is missing. Defaulting to Indian/Radar.")
+        target_webhook = WEBHOOK_INDIAN
 
     try:
         if chart_path and os.path.exists(chart_path):

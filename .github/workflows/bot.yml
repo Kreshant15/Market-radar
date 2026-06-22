@@ -25,5 +25,6 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           DISCORD_WEBHOOK_FORADAR: ${{ secrets.DISCORD_WEBHOOK_FORADAR }}
           DISCORD_WEBHOOK_SECTOR: ${{ secrets.DISCORD_WEBHOOK_SECTOR }}
+          DISCORD_WEBHOOK_GLOBAL: ${{ secrets.DISCORD_WEBHOOK_GLOBAL }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python main.py

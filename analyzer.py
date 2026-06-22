@@ -15,6 +15,7 @@ class MarketAnalysis(BaseModel):
     nifty_direction: str = Field(description="Expected impact on Nifty 50. Must be: BULLISH, BEARISH, or NEUTRAL")
     banknifty_direction: str = Field(description="Expected impact on Bank Nifty. Must be: BULLISH, BEARISH, or NEUTRAL")
     direction_probability: str = Field(description="Strict Percentage (e.g., '80%') based on historical reaction to similar data.")
+    event_region: str = Field(description="Must be GLOBAL, INDIAN, or HEAVYWEIGHT")
     vix_impact: str = Field(description="Expected impact on India VIX. Must be: SPIKE, CRUSH, or STABLE")
     suggested_strategy: str = Field(description="Specific F&O options strategy (e.g. Bull Put Spread, Short Straddle)")
     strategy_hedging: str = Field(description="Risk management rules for this specific trade")
@@ -34,7 +35,11 @@ def analyze_headline(headline: str) -> str:
         f"🚨 CRITICAL DESK INSTRUCTIONS 🚨\n"
         f"1. NOISE FILTER: The trading desk HATES corporate news 'mess'. If this is a standard corporate announcement, fund stake buy, minor PR, or stock-specific earnings (unless it's Top 3 Nifty weight), YOU MUST set event_type to 'IGNORE' and impact_score to 0.\n"
         f"2. HISTORICAL PROBABILITY: If this is a Macro event (US Fed, RBI, CPI, NFP, GDP, FII/DII, Crude, War), evaluate the `direction_probability` as a strict percentage (e.g., '75%'). Calculate this based on previous years' historical data (how markets usually react to rate cuts, inflation spikes, etc.).\n"
-        f"3. REASONING: Your reasoning MUST mention the historical context (e.g., 'Historically, lower US CPI results in a 80% probability of FII inflows into emerging markets like India...').\n\n"
+        f"3. REASONING: Your reasoning MUST mention the historical context (e.g., 'Historically, lower US CPI results in a 80% probability of FII inflows into emerging markets like India...').\n"
+        f"4. REGION CLASSIFICATION: You MUST classify `event_region` as:\n"
+        f"   - 'HEAVYWEIGHT' if the news is specifically about Reliance Industries or HDFC Bank.\n"
+        f"   - 'GLOBAL' if the news is about US Fed, Crude Oil, Geopolitics, US CPI, Global Markets, etc.\n"
+        f"   - 'INDIAN' if the news is about RBI, India CPI, Indian Govt, FII/DII, or broader Nifty/BankNifty.\n\n"
         f"When suggesting an options strategy:\n"
         f"- If Bullish + VIX Spike: Bull Call Spread / Long Calls.\n"
         f"- If Bearish + VIX Spike: Bear Put Spread / Long Puts.\n"

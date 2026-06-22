@@ -10,13 +10,16 @@ def fetch_top_headlines():
         # 2. Global Macro & US Triggers (Fed, US CPI, NFP, Crude, War)
         "https://news.google.com/rss/search?q=US+Fed+Interest+Rate+OR+US+CPI+Inflation+OR+Non-Farm+Payrolls+NFP+OR+Crude+Oil+OR+Geopolitical+War+when:1h&hl=en-US&gl=US&ceid=US:en",
         
-        # 3. Livemint Markets RSS (Broad Indian market pulse)
+        # 3. Market Heavyweights (Reliance & HDFC Bank)
+        "https://news.google.com/rss/search?q=Reliance+Industries+OR+HDFC+Bank+news+when:1h&hl=en-IN&gl=IN&ceid=IN:en",
+
+        # 4. Livemint Markets RSS (Broad Indian market pulse)
         "https://www.livemint.com/rss/markets",
         
-        # 4. Yahoo Finance Global Top Stories
+        # 5. Yahoo Finance Global Top Stories
         "https://finance.yahoo.com/news/rssindex",
         
-        # 5. CoinDesk RSS (Crypto macro pulse)
+        # 6. CoinDesk RSS (Crypto macro pulse)
         "https://www.coindesk.com/arc/outboundfeeds/rss/"
     ]
     
