@@ -35,7 +35,7 @@ def analyze_headline(headline: str) -> str:
         f"🚨 CRITICAL DESK INSTRUCTIONS 🚨\n"
         f"1. NOISE FILTER: The trading desk HATES corporate news 'mess'. If this is a standard corporate announcement, fund stake buy, minor PR, or stock-specific earnings, YOU MUST set event_type to 'IGNORE' and impact_score to 0.\n"
         f"   -> 👑 HEAVYWEIGHT EXCEPTION: If the news is specifically about 'Reliance' or 'HDFC Bank', NEVER ignore it. You MUST classify it, set event_region to 'HEAVYWEIGHT', and give it an impact_score of at least 50.\n"
-        f"   -> 📰 MARKET RECAP EXCEPTION: The desk wants end-of-day market summaries (e.g., 'Sensex gains 300 points', 'Nifty ends higher', 'S&P 500 futures muted'). For these, DO NOT ignore. Set event_type to 'RECAP' and impact_score to 50 to ensure they pass the filter.\n"
+        f"   -> 📰 MARKET RECAP EXCEPTION: The desk wants end-of-day market summaries (e.g., 'Sensex gains 300 points', 'Nifty ends higher'). For these, DO NOT ignore. Set event_type to 'RECAP', impact_score to 50, AND strictly set the event name to exactly 'Daily Market Recap' to prevent duplicates.\n"
         f"2. HISTORICAL PROBABILITY: If this is a Macro event (US Fed, RBI, CPI, NFP, GDP, FII/DII, Crude, War), evaluate the `direction_probability` as a strict percentage (e.g., '75%'). Calculate this based on previous years' historical data (how markets usually react to rate cuts, inflation spikes, etc.).\n"
         f"3. REASONING: Your reasoning MUST mention the historical context (e.g., 'Historically, lower US CPI results in a 80% probability of FII inflows into emerging markets like India...').\n"
         f"4. REGION CLASSIFICATION: You MUST classify `event_region` as:\n"

@@ -36,7 +36,7 @@ def init_database():
         "suggested_strategy": "TEXT", "verdict_issued": "BOOLEAN DEFAULT FALSE", "pnl_inr": "NUMERIC",
         "affected_sector": "TEXT", "affected_stock": "TEXT", "target_ticker": "TEXT",
         "micro_strategy": "TEXT", "target_spot": "NUMERIC", "trap_checked": "BOOLEAN DEFAULT FALSE",
-        "direction_probability": "TEXT", "event_region": "TEXT"
+        "direction_probability": "TEXT", "event_region": "TEXT", "nifty_direction": "TEXT"
     }
     
     for column, col_type in columns_to_add.items():
@@ -80,14 +80,14 @@ def is_event_duplicate(cursor, event_name):
 def save_to_database(conn, cursor, headline, data, nifty_spot, banknifty_spot, vix_level, target_spot):
     cursor.execute('''
         INSERT INTO events (headline, event, event_type, impact_score, confidence, timestamp, reasoning, 
-        nifty_spot, banknifty_spot, vix_level, suggested_strategy, affected_sector, affected_stock, target_ticker, micro_strategy, target_spot, direction_probability, event_region)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        nifty_spot, banknifty_spot, vix_level, suggested_strategy, affected_sector, affected_stock, target_ticker, micro_strategy, target_spot, direction_probability, event_region, nifty_direction)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ''', (
         headline, data.get("event", "Unknown"), data.get("event_type", "OTHER"), data.get("impact_score", 0), data.get("confidence", 0),
         datetime.now(), data.get("reasoning", ""), nifty_spot if nifty_spot > 0 else None, banknifty_spot if banknifty_spot > 0 else None,
         vix_level if vix_level > 0 else None, data.get("suggested_strategy", "N/A"), data.get("affected_sector", "Broader Market"),
         data.get("affected_stock", "None"), data.get("target_ticker", "NONE"), data.get("micro_strategy", "N/A"), target_spot if target_spot > 0 else None,
-        data.get("direction_probability", "N/A"), data.get("event_region", "INDIAN")
+        data.get("direction_probability", "N/A"), data.get("event_region", "INDIAN"), data.get("nifty_direction", "NEUTRAL")
     ))
     conn.commit()
 
