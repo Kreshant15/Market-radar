@@ -1,11 +1,10 @@
 name: Pre-Market Morning Briefing
 
 on:
-  workflow_dispatch: # Allows you to manually trigger it anytime for testing
+  workflow_dispatch:
   schedule:
-    # This cron expression translates to 03:00 UTC, which is EXACTLY 08:30 AM IST.
-    # The '1-5' means it only runs on Monday through Friday (Market days).
-    - cron: '0 3 * * 1-5'
+    # Runs daily at 03:00 UTC, which is EXACTLY 08:30 AM IST (Right before Indian market open)
+    - cron: '0 3 * * *'
 
 jobs:
   run-briefing:
@@ -25,6 +24,6 @@ jobs:
       - name: Run Morning Briefing
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_PREMARKET }}
+          DISCORD_WEBHOOK_PREMARKET: ${{ secrets.DISCORD_WEBHOOK_PREMARKET }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python pre_market_briefing.py
