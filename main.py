@@ -65,10 +65,16 @@ def get_target_price(ticker):
         return float(round(history['Close'].iloc[-1].item(), 2)) if not history.empty else 0.0
     except Exception: return 0.0
 
-def is_duplicate_event(cursor, event_name, headline):
-    # Strict deduplication checks BOTH the headline string and the AI's categorized event name
-    cursor.execute("SELECT timestamp FROM events WHERE (event = %s OR headline = %s) AND timestamp > %s ORDER BY timestamp DESC LIMIT 1", 
-                   (event_name, headline, datetime.now() - timedelta(hours=COOLDOWN_HOURS)))
+def is_headline_duplicate(cursor, headline):
+    """PRE-API CHECK: Saves API tokens by instantly blocking identical headline strings."""
+    cursor.execute("SELECT timestamp FROM events WHERE headline = %s AND timestamp > %s LIMIT 1", 
+                   (headline, datetime.now() - timedelta(hours=24)))
+    return cursor.fetchone() is not None
+
+def is_event_duplicate(cursor, event_name):
+    """POST-API CHECK: Blocks different headlines reporting the exact same event."""
+    cursor.execute("SELECT timestamp FROM events WHERE event = %s AND timestamp > %s LIMIT 1", 
+                   (event_name, datetime.now() - timedelta(hours=COOLDOWN_HOURS)))
     return cursor.fetchone() is not None
 
 def save_to_database(conn, cursor, headline, data, nifty_spot, banknifty_spot, vix_level, target_spot):
@@ -155,22 +161,29 @@ def main():
 
     try:
         for headline in news_fetcher.fetch_top_headlines():
+            # 🛑 PRE-API CHECK: If we've seen this exact headline today, skip it instantly to save Gemini Tokens!
+            if is_headline_duplicate(cursor, headline):
+                continue 
+
             try:
                 data = json.loads(analyzer.analyze_headline(headline))
                 
-                # 🛑 ANTI-NOISE FILTER: Instantly skip anything tagged IGNORE or low impact
+                # ANTI-NOISE FILTER: Instantly skip anything tagged IGNORE or low impact
                 if data.get("event_type", "OTHER") == "IGNORE" or int(data.get("impact_score", 0)) < 40:
                     print(f"Skipped Corporate Noise/Low Impact: {headline}")
                     continue
 
-                if is_duplicate_event(cursor, data.get("event", "Unknown"), headline): 
-                    print(f"Skipped duplicate: {headline}")
+                # 🛑 POST-API CHECK: Catch different headlines reporting the same event
+                if is_event_duplicate(cursor, data.get("event", "Unknown")): 
+                    print(f"Skipped duplicate event: {headline}")
                     continue
                     
                 target_spot = get_target_price(data.get("target_ticker", "NONE"))
                 save_to_database(conn, cursor, headline, data, nifty_spot, banknifty_spot, vix_level, target_spot)
                 send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level, target_spot)
-                time.sleep(5)
+                
+                # Protect the RPM limit (15 requests per minute) by sleeping slightly longer after a successful alert
+                time.sleep(10)
             except Exception as e:
                 conn.rollback()
     except Exception as e:
