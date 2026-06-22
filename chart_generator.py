@@ -31,7 +31,7 @@ def create_entry_chart(ticker="^NSEI", direction="BULLISH", spot_price=0.0):
         
         # Add a floating label pointing to the dot
         ax.annotate(
-            f'🚨 BADE SAHAB ENTRY\n₹{spot_price:,.2f}', 
+            f'BADE SAHAB ENTRY\n₹{spot_price:,.2f}', 
             xy=(last_time, spot_price),
             xytext=(-10, 20),
             textcoords='offset points',
