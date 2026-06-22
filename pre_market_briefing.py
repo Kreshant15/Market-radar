@@ -1,21 +1,22 @@
 import os
+import json
 import psycopg2
 import requests
+import re
 import yfinance as yf
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from google import genai
+from gtts import gTTS
 
 load_dotenv()
 DB_URL = os.getenv("DATABASE_URL")
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_PREMARKET")
 
 def fetch_overnight_events():
-    """Fetches domestic events saved in the last 24 hours."""
     try:
         conn = psycopg2.connect(DB_URL)
         cursor = conn.cursor()
-        
         yesterday = datetime.now() - timedelta(hours=24)
         cursor.execute('''
             SELECT headline, event, event_type, impact_score, reasoning 
@@ -23,7 +24,6 @@ def fetch_overnight_events():
             WHERE timestamp >= %s
             ORDER BY timestamp DESC
         ''', (yesterday,))
-        
         events = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -33,15 +33,9 @@ def fetch_overnight_events():
         return []
 
 def fetch_global_cues():
-    """Fetches live global indices to provide context for the Indian open."""
     print("Fetching live global market cues...")
     cues = {}
-    tickers = {
-        "S&P 500 (US)": "^GSPC",
-        "Nasdaq (US)": "^IXIC",
-        "Brent Crude": "BZ=F",
-        "USD/INR": "INR=X"
-    }
+    tickers = {"S&P 500 (US)": "^GSPC", "Nasdaq (US)": "^IXIC", "Brent Crude": "BZ=F", "USD/INR": "INR=X"}
     
     for name, symbol in tickers.items():
         try:
@@ -58,14 +52,10 @@ def fetch_global_cues():
                 cues[name] = "Data Unavailable"
         except Exception:
             cues[name] = "Error"
-            
     return cues
 
 def generate_briefing(events, global_cues):
-    """Summarizes events AND live global data using Gemini."""
     client = genai.Client()
-    
-    # Format global cues for the AI
     cues_text = "\n".join([f"- {k}: {v}" for k, v in global_cues.items()])
     
     if not events:
@@ -95,49 +85,77 @@ def generate_briefing(events, global_cues):
         )
 
     try:
-        response = client.models.generate_content(
-            model="gemini-3.1-flash-lite",
-            contents=prompt
-        )
+        response = client.models.generate_content(model="gemini-3.1-flash-lite", contents=prompt)
         return response.text
     except Exception as e:
         print(f"AI generation failed: {e}")
         return "Failed to generate AI analysis. Please check global cues manually."
 
-def send_discord_briefing(briefing_text, global_cues):
-    """Sends the briefing cleanly formatted with a vibrant Orange theme."""
-    # Create a clean top-bar for the raw global data
+def create_audio_file(briefing_text, global_cues):
+    """Converts the text briefing into a professional podcast-style audio file."""
+    print("Generating Bade Sahab Radio audio...")
+    
+    # 1. Clean the text for the AI voice (remove asterisks and markdown so it doesn't read them out loud)
+    clean_text = re.sub(r'[*#_~]', '', briefing_text)
+    
+    # 2. Add an intro and the global cues to the spoken text
+    intro = "Good morning. This is Bade Sahab Radio with your pre-market briefing. Let's look at the live global radar. "
+    for k, v in global_cues.items():
+        clean_val = v.split('(')[0] if '(' in v else v # Just read the price, skip the complicated percentage string
+        intro += f"{k} is trading at {clean_val}. "
+        
+    full_script = intro + "Now for the main briefing. " + clean_text + " Good luck trading today."
+    
+    # 3. Generate Audio (tld='co.in' gives it an Indian-English accent)
+    filename = "bade_sahab_radio.mp3"
+    try:
+        tts = gTTS(text=full_script, lang='en', tld='co.in', slow=False)
+        tts.save(filename)
+        return filename
+    except Exception as e:
+        print(f"Audio generation failed: {e}")
+        return None
+
+def send_discord_briefing(briefing_text, global_cues, audio_file):
     cues_str = " | ".join([f"**{k}:** {v}" for k, v in global_cues.items()])
     
-    payload = {
-        "embeds": [{
-            "title": "🌅 Bade Sahab Pre-Market Briefing",
-            "description": f"🌍 **Live Global Radar:**\n{cues_str}\n\n{briefing_text}",
-            "color": 16744192, # Vibrant Trading Orange Hex (#FF9900)
-            "footer": {"text": "Bade Sahab Live Trading Desk • Pre-Market Synthesis"}
-        }]
+    embed = {
+        "title": "🌅 Bade Sahab Pre-Market Briefing & Radio",
+        "description": f"🎙️ **Hit Play on the Audio File Below!**\n\n🌍 **Live Global Radar:**\n{cues_str}\n\n{briefing_text}",
+        "color": 16744192,
+        "footer": {"text": "Bade Sahab Live Trading Desk • Pre-Market Synthesis"}
     }
     
     try:
-        response = requests.post(DISCORD_WEBHOOK_URL, json=payload)
-        if response.status_code in [200, 204]:
-            print("Briefing successfully dispatched to Discord!")
+        if audio_file and os.path.exists(audio_file):
+            print("Uploading MP3 to Discord...")
+            with open(audio_file, "rb") as f:
+                response = requests.post(
+                    DISCORD_WEBHOOK_URL,
+                    data={"payload_json": json.dumps({"embeds": [embed]})},
+                    files={"file": ("bade_sahab_radio.mp3", f, "audio/mpeg")}
+                )
+            os.remove(audio_file) # Clean up the file after sending
         else:
-            print(f"Discord returned error status: {response.status_code}")
+            response = requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]})
+            
+        if response.status_code in [200, 204]:
+            print("Briefing successfully dispatched!")
+        else:
+            print(f"Discord error: {response.status_code}")
     except Exception as e:
         print(f"Failed to send Discord alert: {e}")
 
 def main():
     print("Initializing Pre-Market Engine...")
-    
     global_cues = fetch_global_cues()
     events = fetch_overnight_events()
     
-    print(f"Found {len(events)} domestic events. Generating AI synthesis with global data...")
     briefing = generate_briefing(events, global_cues)
+    audio_file = create_audio_file(briefing, global_cues)
     
-    print("Pushing briefing to Discord...")
-    send_discord_briefing(briefing, global_cues)
+    print("Pushing briefing and audio to Discord...")
+    send_discord_briefing(briefing, global_cues, audio_file)
 
 if __name__ == "__main__":
     main()
