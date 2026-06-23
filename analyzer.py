@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 load_dotenv()
 
 class MarketAnalysis(BaseModel):
+    headline_analyzed: str = Field(description="The exact original headline this analysis belongs to")
     event: str = Field(description="Short, standardized name of the event (e.g., 'US CPI Data', 'RBI Repo Rate').")
     event_type: str = Field(description="Must be MACRO, RBI, FED, GEOPOLITICAL, FII_DII, or IGNORE (for corporate news)")
     impact_score: int = Field(description="0-100 scale. Give 0 if event_type is IGNORE.")
@@ -25,23 +26,30 @@ class MarketAnalysis(BaseModel):
     target_ticker: str = Field(description="Yahoo Finance ticker (e.g., 'RELIANCE.NS'). 'NONE' if no specific stock.")
     micro_strategy: str = Field(description="Targeted stock-specific options strategy. 'N/A' if none.")
 
-def analyze_headline(headline: str) -> str:
-    """Uses Gemini to analyze news with strict Macro and Probability rules."""
+class BatchMarketAnalysis(BaseModel):
+    analyses: list[MarketAnalysis]
+
+def analyze_headlines_batch(headlines: list[str]) -> str:
+    """Uses Gemini to analyze a BATCH of news headlines in a single API call to save tokens."""
+    if not headlines:
+        return '{"analyses": []}'
+
     client = genai.Client()
     
+    # Format the list of headlines into a numbered text block for the AI
+    headlines_text = "\n".join([f"{i+1}. {hl}" for i, hl in enumerate(headlines)])
+    
     prompt = (
-        f"Analyze the following Indian/Global financial news headline:\n\n"
-        f"Headline: {headline}\n\n"
+        f"Analyze the following BATCH of Indian/Global financial news headlines:\n\n"
+        f"{headlines_text}\n\n"
         f"🚨 CRITICAL DESK INSTRUCTIONS 🚨\n"
+        f"Provide an individual analysis object for EACH headline provided above.\n"
         f"1. NOISE FILTER: The trading desk HATES corporate news 'mess'. If this is a standard corporate announcement, fund stake buy, minor PR, or stock-specific earnings, YOU MUST set event_type to 'IGNORE' and impact_score to 0.\n"
         f"   -> 👑 HEAVYWEIGHT EXCEPTION: If the news is specifically about 'Reliance' or 'HDFC Bank', NEVER ignore it. You MUST classify it, set event_region to 'HEAVYWEIGHT', and give it an impact_score of at least 50.\n"
         f"   -> 📰 MARKET RECAP EXCEPTION: The desk wants end-of-day market summaries (e.g., 'Sensex gains 300 points', 'Nifty ends higher'). For these, DO NOT ignore. Set event_type to 'RECAP', impact_score to 50, AND strictly set the event name to exactly 'Daily Market Recap' to prevent duplicates.\n"
         f"2. HISTORICAL PROBABILITY: If this is a Macro event (US Fed, RBI, CPI, NFP, GDP, FII/DII, Crude, War), evaluate the `direction_probability` as a strict percentage (e.g., '75%'). Calculate this based on previous years' historical data (how markets usually react to rate cuts, inflation spikes, etc.).\n"
-        f"3. REASONING: Your reasoning MUST mention the historical context (e.g., 'Historically, lower US CPI results in a 80% probability of FII inflows into emerging markets like India...').\n"
-        f"4. REGION CLASSIFICATION: You MUST classify `event_region` as:\n"
-        f"   - 'HEAVYWEIGHT' if the news is specifically about Reliance Industries or HDFC Bank.\n"
-        f"   - 'GLOBAL' if the news is about US Fed, Crude Oil, Geopolitics, US CPI, Global Markets, etc.\n"
-        f"   - 'INDIAN' if the news is about RBI, India CPI, Indian Govt, FII/DII, or broader Nifty/BankNifty.\n\n"
+        f"3. REASONING: Your reasoning MUST mention the historical context.\n"
+        f"4. REGION CLASSIFICATION: You MUST classify `event_region` as 'HEAVYWEIGHT', 'GLOBAL', or 'INDIAN'.\n\n"
         f"When suggesting an options strategy:\n"
         f"- If Bullish + VIX Spike: Bull Call Spread / Long Calls.\n"
         f"- If Bearish + VIX Spike: Bear Put Spread / Long Puts.\n"
@@ -49,14 +57,17 @@ def analyze_headline(headline: str) -> str:
         f"- If Bullish + VIX Crush/Stable: Bull Put Spread (Credit).\n"
     )
     
-    response = client.models.generate_content(
-        model="gemini-3.1-flash-lite",
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=MarketAnalysis,
-            temperature=0.1, # Extremely low temp for rigid, mathematical outputs
-        ),
-    )
-    
-    return response.text
+    try:
+        response = client.models.generate_content(
+            model="gemini-3.1-flash-lite",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=BatchMarketAnalysis,
+                temperature=0.1, 
+            ),
+        )
+        return response.text
+    except Exception as e:
+        print(f"Batch Analysis API Error: {e}")
+        return '{"analyses": []}'

@@ -99,6 +99,31 @@ def is_event_duplicate(cursor, event_name):
                    (event_name, datetime.now() - timedelta(hours=COOLDOWN_HOURS)))
     return cursor.fetchone() is not None
 
+def is_worth_analyzing(headline):
+    """🛡️ THE ZERO-TOKEN BOUNCER: Filters out corporate noise locally to save Gemini API tokens."""
+    headline_lower = headline.lower()
+    
+    # 1. VIP MACRO OVERRIDE (If any of these are present, ALWAYS analyze it)
+    vip_keywords = [
+        "rbi", "fed", "war", "missile", "oil", "crude", "inflation", "cpi", 
+        "gdp", "rate cut", "rate hike", "geopolitical", "govt", "government", 
+        "us ", "china", "sebi"
+    ]
+    if any(vip in headline_lower for vip in vip_keywords):
+        return True # VIP Pass: Send to Gemini
+
+    # 2. THE TRASH FILTER (If no VIP words, check for corporate garbage)
+    trash_keywords = [
+        "dividend", "q1", "q2", "q3", "q4", "stake", "acquires", "ebitda", 
+        "net profit", "board meeting", "appoints", "resigns", "fundraising",
+        "yoy", "pat ", "standalone"
+    ]
+    if any(trash in headline_lower for trash in trash_keywords):
+        return False # Blocked: Do not waste a token
+
+    # 3. DEFAULT (If it's neither VIP nor obvious trash, let Gemini decide)
+    return True
+
 def cleanup_database(conn, cursor):
     """🧹 Auto-Cleaner: Keeps the free PostgreSQL database lightweight and fast."""
     try:
@@ -206,37 +231,58 @@ def main():
     nifty_spot, banknifty_spot, vix_level = get_live_market_prices()
 
     try:
+        # 1. Collect and filter headlines locally (The Zero-Token Bouncer)
+        headlines_to_analyze = []
         for headline in news_fetcher.fetch_top_headlines():
-            # 🛑 PRE-API CHECK: If we've seen this exact headline today, skip it instantly to save tokens
             if is_headline_duplicate(cursor, headline):
                 continue 
+                
+            if not is_worth_analyzing(headline):
+                print(f"Skipped Corporate Noise (Local Bouncer): {headline}")
+                # Still save it as IGNORE so it doesn't get processed again next 10 mins
+                save_to_database(conn, cursor, headline, {"event_type": "IGNORE", "impact_score": 0}, nifty_spot, banknifty_spot, vix_level, 0)
+                continue
+                
+            headlines_to_analyze.append(headline)
 
+        # 2. Batch process the surviving headlines in ONE API call!
+        if headlines_to_analyze:
             try:
-                data = json.loads(analyzer.analyze_headline(headline))
-                target_spot = get_target_price(data.get("target_ticker", "NONE"))
+                batch_response = analyzer.analyze_headlines_batch(headlines_to_analyze)
+                parsed_batch = json.loads(batch_response).get("analyses", [])
                 
-                # Check for duplicate events BEFORE saving to the DB
-                is_duplicate = is_event_duplicate(cursor, data.get("event", "Unknown"))
-                
-                # 🛑 ALWAYS save to database so the PRE-API check remembers this exact string for next time!
-                save_to_database(conn, cursor, headline, data, nifty_spot, banknifty_spot, vix_level, target_spot)
-                
-                # ANTI-NOISE FILTER: Skip Discord alert for IGNORE or low impact
-                if data.get("event_type", "OTHER") == "IGNORE" or int(data.get("impact_score", 0)) < 40:
-                    print(f"Skipped Corporate Noise (Saved to Blocklist): {headline}")
-                    continue
-
-                # POST-API CHECK: Skip Discord alert if event was already reported
-                if is_duplicate: 
-                    print(f"Skipped duplicate event (Saved to Blocklist): {headline}")
-                    continue
+                # 3. Handle the returned data normally
+                for data in parsed_batch:
+                    headline = data.get("headline_analyzed")
+                    if not headline: 
+                        continue
+                        
+                    target_spot = get_target_price(data.get("target_ticker", "NONE"))
                     
-                send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level, target_spot)
-                
-                # Protect the RPM limit (15 requests per minute)
-                time.sleep(10)
+                    # Check for duplicate events BEFORE saving to the DB
+                    is_duplicate = is_event_duplicate(cursor, data.get("event", "Unknown"))
+                    
+                    # 🛑 ALWAYS save to database so the PRE-API check remembers this exact string for next time!
+                    save_to_database(conn, cursor, headline, data, nifty_spot, banknifty_spot, vix_level, target_spot)
+                    
+                    # ANTI-NOISE FILTER: Skip Discord alert for IGNORE or low impact
+                    if data.get("event_type", "OTHER") == "IGNORE" or int(data.get("impact_score", 0)) < 40:
+                        print(f"Skipped Corporate Noise (Saved to Blocklist): {headline}")
+                        continue
+
+                    # POST-API CHECK: Skip Discord alert if event was already reported
+                    if is_duplicate: 
+                        print(f"Skipped duplicate event (Saved to Blocklist): {headline}")
+                        continue
+                        
+                    send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level, target_spot)
+                    
+                    # Add a 2-second delay between Discord posts to avoid rate-limiting if there are multiple hits
+                    time.sleep(2)
             except Exception as e:
+                print(f"Error processing batch API response: {e}")
                 conn.rollback()
+
     except Exception as e:
         print(e)
     finally:
