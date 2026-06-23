@@ -2,10 +2,7 @@ name: Pre-Market Morning Briefing
 
 on:
   workflow_dispatch:
-  schedule:
-    # Runs daily at 03:00 UTC, which is EXACTLY 08:30 AM IST (Right before Indian market open)
-    - cron: '0 3 * * *'
-
+    
 jobs:
   run-briefing:
     runs-on: ubuntu-latest

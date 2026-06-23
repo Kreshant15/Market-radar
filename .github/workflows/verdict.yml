@@ -2,8 +2,6 @@ name: Post-Market Performance Verdict
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '15 10 * * 1-5'
 
 jobs:
   run-verdict:
