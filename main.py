@@ -19,33 +19,55 @@ COOLDOWN_HOURS = 6
 
 # 🛑 NOTE: is_market_open() shield has been REMOVED. Bot now runs 24/7/365.
 
-def init_database():
-    conn = psycopg2.connect(DB_URL)
-    cursor = conn.cursor()
-    
-    cursor.execute('''CREATE TABLE IF NOT EXISTS events (id SERIAL PRIMARY KEY, headline TEXT NOT NULL, event TEXT NOT NULL, event_type TEXT NOT NULL, impact_score INTEGER NOT NULL, confidence INTEGER NOT NULL, timestamp TIMESTAMP NOT NULL, reasoning TEXT NOT NULL)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS portfolio (id SERIAL PRIMARY KEY, current_balance NUMERIC NOT NULL, updated_at TIMESTAMP NOT NULL)''')
-    
-    cursor.execute('SELECT COUNT(*) FROM portfolio')
-    if cursor.fetchone()[0] == 0:
-        cursor.execute('INSERT INTO portfolio (id, current_balance, updated_at) VALUES (1, 1000000.0, NOW())')
-        conn.commit()
-    
-    columns_to_add = {
-        "nifty_spot": "NUMERIC", "banknifty_spot": "NUMERIC", "vix_level": "NUMERIC",
-        "suggested_strategy": "TEXT", "verdict_issued": "BOOLEAN DEFAULT FALSE", "pnl_inr": "NUMERIC",
-        "affected_sector": "TEXT", "affected_stock": "TEXT", "target_ticker": "TEXT",
-        "micro_strategy": "TEXT", "target_spot": "NUMERIC", "trap_checked": "BOOLEAN DEFAULT FALSE",
-        "direction_probability": "TEXT", "event_region": "TEXT", "nifty_direction": "TEXT"
-    }
-    
-    for column, col_type in columns_to_add.items():
-        cursor.execute(f"SELECT COUNT(*) FROM information_schema.columns WHERE table_name='events' AND column_name='{column}'")
-        if cursor.fetchone()[0] == 0:
-            cursor.execute(f"ALTER TABLE events ADD COLUMN {column} {col_type};")
-            conn.commit()
+def init_database(retries=3, delay=5):
+    """Initializes the DB and handles Neon's 'Cold Start' sleep mode."""
+    for attempt in range(retries):
+        try:
+            conn = psycopg2.connect(DB_URL)
+            cursor = conn.cursor()
+            # Create the table if it doesn't exist
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS events (
+                    id SERIAL PRIMARY KEY,
+                    headline TEXT,
+                    event TEXT,
+                    event_type TEXT,
+                    impact_score INTEGER,
+                    confidence INTEGER,
+                    timestamp TIMESTAMP,
+                    reasoning TEXT
+                )
+            ''')
             
-    return conn
+            # --- ADD NEW COLUMNS IF THEY DONT EXIST ---
+            columns_to_add = {
+                "nifty_spot": "NUMERIC", "banknifty_spot": "NUMERIC", "vix_level": "NUMERIC",
+                "suggested_strategy": "TEXT", "verdict_issued": "BOOLEAN DEFAULT FALSE", "pnl_inr": "NUMERIC",
+                "affected_sector": "TEXT", "affected_stock": "TEXT", "target_ticker": "TEXT",
+                "micro_strategy": "TEXT", "target_spot": "NUMERIC", "trap_checked": "BOOLEAN DEFAULT FALSE",
+                "direction_probability": "TEXT", "event_region": "TEXT", "nifty_direction": "TEXT"
+            }
+            
+            for column, col_type in columns_to_add.items():
+                cursor.execute(f"""
+                    DO $$ 
+                    BEGIN 
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                                       WHERE table_name='events' AND column_name='{column}') THEN 
+                            ALTER TABLE events ADD COLUMN {column} {col_type}; 
+                        END IF; 
+                    END $$;
+                """)
+            conn.commit()
+            return conn
+            
+        except psycopg2.OperationalError as e:
+            if "Control plane request failed" in str(e) or attempt < retries - 1:
+                print(f"Database is waking up... Retrying in {delay} seconds (Attempt {attempt + 1}/{retries})")
+                time.sleep(delay)
+            else:
+                print("Database connection totally failed after retries.")
+                raise e
 
 def get_live_market_prices():
     try:
