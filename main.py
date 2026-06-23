@@ -4,6 +4,7 @@ import time
 import psycopg2
 import requests
 import yfinance as yf
+import difflib
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import news_fetcher
@@ -88,10 +89,18 @@ def get_target_price(ticker):
     except Exception: return 0.0
 
 def is_headline_duplicate(cursor, headline):
-    """PRE-API CHECK: Saves API tokens by instantly blocking identical headline strings."""
-    cursor.execute("SELECT timestamp FROM events WHERE headline = %s AND timestamp > %s LIMIT 1", 
-                   (headline, datetime.now() - timedelta(hours=24)))
-    return cursor.fetchone() is not None
+    """PRE-API CHECK: Saves API tokens by blocking identical or highly similar headline strings."""
+    cursor.execute("SELECT headline FROM events WHERE timestamp > %s", 
+                   (datetime.now() - timedelta(hours=24),))
+    recent_headlines = [row[0] for row in cursor.fetchall() if row[0]]
+    
+    for old_headline in recent_headlines:
+        # If the headline is 80% identical to a previous one, consider it a duplicate!
+        similarity = difflib.SequenceMatcher(None, headline.lower(), old_headline.lower()).ratio()
+        if similarity > 0.80:
+            return True
+            
+    return False
 
 def is_event_duplicate(cursor, event_name):
     """POST-API CHECK: Blocks different headlines reporting the exact same event."""
