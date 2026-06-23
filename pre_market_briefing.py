@@ -3,6 +3,7 @@ import json
 import psycopg2
 import requests
 import re
+import time
 import yfinance as yf
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -84,29 +85,33 @@ def generate_briefing(events, global_cues):
             f"**Recommended Action Plan:** [How to play current options strategies and manage risk]"
         )
 
-    try:
-        response = client.models.generate_content(model="gemini-3.1-flash-lite", contents=prompt)
-        return response.text
-    except Exception as e:
-        print(f"AI generation failed: {e}")
-        return "Failed to generate AI analysis. Please check global cues manually."
+    # 🛡️ EXPONENTIAL BACKOFF: Retry up to 5 times with progressive delays to dodge rate limits
+    delays = [1, 2, 4, 8, 16]
+    for attempt, delay in enumerate(delays):
+        try:
+            response = client.models.generate_content(model="gemini-3.1-flash-lite", contents=prompt)
+            return response.text
+        except Exception as e:
+            if attempt == len(delays) - 1:
+                print(f"AI generation completely failed after {len(delays)} attempts: {e}")
+                return "Failed to generate AI analysis. Please check global cues manually."
+            time.sleep(delay)
 
 def create_audio_file(briefing_text, global_cues):
     """Converts the text briefing into a professional podcast-style audio file."""
     print("Generating Bade Sahab Radio audio...")
     
-    # 1. Clean the text for the AI voice (remove asterisks and markdown so it doesn't read them out loud)
+    # Clean the text for the AI voice (remove asterisks and markdown)
     clean_text = re.sub(r'[*#_~]', '', briefing_text)
     
-    # 2. Add an intro and the global cues to the spoken text
+    # Add an intro and the global cues to the spoken text
     intro = "Good morning. This is Bade Sahab Radio with your pre-market briefing. Let's look at the live global radar. "
     for k, v in global_cues.items():
-        clean_val = v.split('(')[0] if '(' in v else v # Just read the price, skip the complicated percentage string
+        clean_val = v.split('(')[0] if '(' in v else v 
         intro += f"{k} is trading at {clean_val}. "
         
     full_script = intro + "Now for the main briefing. " + clean_text + " Good luck trading today."
     
-    # 3. Generate Audio (tld='co.in' gives it an Indian-English accent)
     filename = "bade_sahab_radio.mp3"
     try:
         tts = gTTS(text=full_script, lang='en', tld='co.in', slow=False)
@@ -135,7 +140,7 @@ def send_discord_briefing(briefing_text, global_cues, audio_file):
                     data={"payload_json": json.dumps({"embeds": [embed]})},
                     files={"file": ("bade_sahab_radio.mp3", f, "audio/mpeg")}
                 )
-            os.remove(audio_file) # Clean up the file after sending
+            os.remove(audio_file) 
         else:
             response = requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]})
             
