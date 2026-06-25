@@ -11,23 +11,34 @@ def fetch_nse_oi_data():
     """Bypasses NSE blocks by simulating a real browser to fetch live Option Chain data."""
     url = 'https://www.nseindia.com/api/option-chain-indices?symbol=NIFTY'
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': '*/*',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Referer': 'https://www.nseindia.com/get-quotes/derivatives?symbol=NIFTY'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/javascript, */*; q=0.01',
+        'Accept-Language': 'en-US,en;q=0.9,en-IN;q=0.8',
+        'Referer': 'https://www.nseindia.com/option-chain',
+        'Connection': 'keep-alive',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-origin',
+        'X-Requested-With': 'XMLHttpRequest'
     }
     
     session = requests.Session()
     try:
-        # Step 1: Hit the main page to generate valid session cookies
-        session.get("https://www.nseindia.com", headers=headers, timeout=10)
+        # Step 1: Hit the main option chain page to generate valid session cookies
+        print("Establishing session with NSE...")
+        session.get("https://www.nseindia.com/option-chain", headers=headers, timeout=15)
+        
+        # Step 1.5: CRITICAL - Wait 3 seconds to mimic human load time and let Akamai validate the cookie
+        time.sleep(3)
+        
         # Step 2: Request the actual JSON data using the acquired cookie
-        response = session.get(url, headers=headers, timeout=10)
+        print("Fetching Option Chain JSON...")
+        response = session.get(url, headers=headers, timeout=15)
         
         if response.status_code == 200:
             return response.json()
         else:
-            print(f"NSE API Blocked/Error: {response.status_code}")
+            print(f"NSE API Blocked/Error: {response.status_code} - {response.reason}")
             return None
     except Exception as e:
         print(f"Failed to fetch NSE data: {e}")
