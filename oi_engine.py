@@ -11,38 +11,42 @@ def fetch_nse_oi_data():
     """Bypasses NSE blocks by simulating a real browser to fetch live Option Chain data."""
     url = 'https://www.nseindia.com/api/option-chain-indices?symbol=NIFTY'
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/javascript, */*; q=0.01',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9,en-IN;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br', # CRITICAL: Akamai requires this header
         'Referer': 'https://www.nseindia.com/option-chain',
         'Connection': 'keep-alive',
-        'Sec-Fetch-Dest': 'empty',
-        'Sec-Fetch-Mode': 'cors',
-        'Sec-Fetch-Site': 'same-origin',
-        'X-Requested-With': 'XMLHttpRequest'
+        'Upgrade-Insecure-Requests': '1'
     }
     
-    session = requests.Session()
-    try:
-        # Step 1: Hit the main option chain page to generate valid session cookies
-        print("Establishing session with NSE...")
-        session.get("https://www.nseindia.com/option-chain", headers=headers, timeout=15)
-        
-        # Step 1.5: CRITICAL - Wait 3 seconds to mimic human load time and let Akamai validate the cookie
-        time.sleep(3)
-        
-        # Step 2: Request the actual JSON data using the acquired cookie
-        print("Fetching Option Chain JSON...")
-        response = session.get(url, headers=headers, timeout=15)
-        
-        if response.status_code == 200:
-            return response.json()
-        else:
-            print(f"NSE API Blocked/Error: {response.status_code} - {response.reason}")
-            return None
-    except Exception as e:
-        print(f"Failed to fetch NSE data: {e}")
-        return None
+    # 3-Strike Retry System
+    for attempt in range(3):
+        try:
+            print(f"Attempt {attempt + 1}: Establishing stealth session with NSE...")
+            session = requests.Session()
+            session.headers.update(headers)
+            
+            # Step 1: Hit the homepage to grab the initial Akamai cookies
+            session.get("https://www.nseindia.com", timeout=10)
+            time.sleep(2)
+            
+            # Step 2: Request the actual JSON data using the acquired cookies
+            print(f"Attempt {attempt + 1}: Fetching Option Chain JSON...")
+            response = session.get(url, timeout=10)
+            
+            if response.status_code == 200:
+                print("✅ Successfully bypassed NSE firewall!")
+                return response.json()
+            else:
+                print(f"NSE Firewall Blocked (Error {response.status_code}). Retrying...")
+                time.sleep(3) # Wait 3 seconds before the next strike
+        except Exception as e:
+            print(f"Failed on attempt {attempt + 1}: {e}")
+            time.sleep(3)
+            
+    print("❌ All 3 attempts failed. NSE firewall is too strong right now.")
+    return None
 
 def analyze_oi(data):
     """Scans the near-the-money options for massive institutional panic unwinding."""
