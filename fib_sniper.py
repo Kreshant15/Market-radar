@@ -15,7 +15,7 @@ class GoldenPocketSniper:
         self.ema_period = 200 # NERO'S SETTING: The Institutional Line in the Sand
 
     def fetch_and_calculate(self):
-        """Fetches 15m data, calculates the 200 EMA, and maps the 0.68 Golden Pocket."""
+        """Fetches 15m data, calculates the 200 EMA, and maps the 0.68 Golden Pocket & 0.786 Stop Loss."""
         try:
             # 1. Fetch 15 days of 15m data (Required to calculate 200 EMA accurately)
             asset = yf.Ticker(self.ticker)
@@ -46,6 +46,7 @@ class GoldenPocketSniper:
                 # Calculate Pullback Fibs from High to Low
                 fib_0618 = swing_high - (diff * 0.618)
                 fib_0680 = swing_high - (diff * 0.680) # Nero's custom boundary
+                fib_0786 = swing_high - (diff * 0.786) # Nero's custom invalidation Stop Loss
                 
                 # Did the price dip into the Golden Pocket?
                 if fib_0680 <= low_price <= fib_0618:
@@ -53,7 +54,7 @@ class GoldenPocketSniper:
                         "direction": "BULLISH (Buy the Dip)",
                         "color": 5763719, # Green
                         "zone": f"₹{fib_0680:,.2f} - ₹{fib_0618:,.2f}",
-                        "sl": f"₹{fib_0680 - (close_price * 0.002):,.2f}", # SL slightly below 0.68
+                        "sl": f"₹{fib_0786:,.2f}", # Hard Stop Loss precisely at the 0.786 level
                         "spot": close_price,
                         "ema": ema_200
                     }
@@ -63,6 +64,7 @@ class GoldenPocketSniper:
                 # Calculate Pullback Fibs from Low to High
                 fib_0618 = swing_low + (diff * 0.618)
                 fib_0680 = swing_low + (diff * 0.680)
+                fib_0786 = swing_low + (diff * 0.786) # Nero's custom invalidation Stop Loss
                 
                 # Did the price rally up into the Golden Pocket?
                 if fib_0618 <= high_price <= fib_0680:
@@ -70,7 +72,7 @@ class GoldenPocketSniper:
                         "direction": "BEARISH (Sell the Rally)",
                         "color": 15548997, # Red
                         "zone": f"₹{fib_0618:,.2f} - ₹{fib_0680:,.2f}",
-                        "sl": f"₹{fib_0680 + (close_price * 0.002):,.2f}", # SL slightly above 0.68
+                        "sl": f"₹{fib_0786:,.2f}", # Hard Stop Loss precisely at the 0.786 level
                         "spot": close_price,
                         "ema": ema_200
                     }
@@ -98,7 +100,7 @@ class GoldenPocketSniper:
                 {"name": "Trend Filter", "value": f"200 EMA @ {currency}{setup['ema']:,.2f}", "inline": True},
                 {"name": "Golden Pocket Zone", "value": setup['zone'].replace("₹", currency), "inline": False},
                 {"name": "🛡️ Strict Stop Loss", "value": setup['sl'].replace("₹", currency), "inline": True},
-                {"name": "Mathematical Logic", "value": "Price has pulled back directly into the 61.8% - 68.0% value area while remaining aligned with the broader 200 EMA institutional trend.", "inline": False}
+                {"name": "Mathematical Logic", "value": "Price has pulled back directly into the 61.8% - 68.0% value area while remaining aligned with the broader 200 EMA institutional trend. Invalidated if price breaks past the 78.6% level.", "inline": False}
             ],
             "footer": {"text": "Bade Sahab Tech Scanner • Custom Indicator Logic"}
         }
@@ -112,7 +114,7 @@ class GoldenPocketSniper:
 def main():
     print("Initiating Golden Pocket Radar...")
     
-    # Tracking Nifty, BankNifty, and BTC (since he sent a crypto screenshot!)
+    # Tracking Nifty, BankNifty, and BTC
     watchlist = {
         "Nifty 50 Index": "^NSEI",
         "Bank Nifty Index": "^NSEBANK",
