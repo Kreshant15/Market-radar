@@ -1,6 +1,7 @@
 import os
 import requests
 import time
+import cloudscraper
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -24,16 +25,22 @@ def fetch_nse_oi_data():
     for attempt in range(3):
         try:
             print(f"Attempt {attempt + 1}: Establishing stealth session with NSE...")
-            session = requests.Session()
-            session.headers.update(headers)
+            
+            # Using cloudscraper to bypass Akamai WAF
+            scraper = cloudscraper.create_scraper(browser={
+                'browser': 'chrome',
+                'platform': 'windows',
+                'desktop': True
+            })
+            scraper.headers.update(headers)
             
             # Step 1: Hit the homepage to grab the initial Akamai cookies
-            session.get("https://www.nseindia.com", timeout=10)
+            scraper.get("https://www.nseindia.com", timeout=10)
             time.sleep(2)
             
             # Step 2: Request the actual JSON data using the acquired cookies
             print(f"Attempt {attempt + 1}: Fetching Option Chain JSON...")
-            response = session.get(url, timeout=10)
+            response = scraper.get(url, timeout=10)
             
             if response.status_code == 200:
                 print("✅ Successfully bypassed NSE firewall!")
