@@ -170,161 +170,139 @@ def save_to_database(conn, cursor, headline, data, nifty_spot, banknifty_spot, v
     conn.commit()
 
 def send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level, target_spot):
-    nifty_dir = data.get('nifty_direction', '').upper()
-    prob = data.get('direction_probability', 'N/A')
-    region = data.get('event_region', 'INDIAN').upper()
-    color = 5763719 if nifty_dir == 'BULLISH' else 15548997 if nifty_dir == 'BEARISH' else 8421504
+    nifty_dir = data.get('nifty_direction', 'NEUTRAL').upper()
+    prob       = data.get('direction_probability', 'N/A')
+    region     = data.get('event_region', 'INDIAN').upper()
+    event_type = data.get('event_type', 'OTHER')
+    event_name = data.get('event', 'Unknown Event')
+    strategy   = data.get('suggested_strategy', 'N/A')
+    hedging    = data.get('strategy_hedging', 'N/A')
+    reasoning  = data.get('reasoning', 'N/A')
+    vix_impact = data.get('vix_impact', 'STABLE')
 
-    # Format spot strings, noting if market is closed (e.g. Sunday)
-    n_spot = f"₹{nifty_spot:,}" if nifty_spot > 0 else "Market Closed"
-    b_spot = f"₹{banknifty_spot:,}" if banknifty_spot > 0 else "Market Closed"
+    # ── Direction badge ────────────────────────────────────────────────────────
+    dir_icon  = "🟢" if nifty_dir == "BULLISH" else "🔴" if nifty_dir == "BEARISH" else "⚪"
+    color     = 5763719 if nifty_dir == "BULLISH" else 15548997 if nifty_dir == "BEARISH" else 8421504
 
-    actual = data.get('macro_actual_data', 'N/A')
-    forecast = data.get('macro_forecast_data', 'N/A')
-    impact = data.get('macro_rate_impact', 'N/A')
+    # ── Spot price strings ─────────────────────────────────────────────────────
+    n_spot = f"₹{nifty_spot:,.2f}" if nifty_spot > 0 else "—"
+    b_spot = f"₹{banknifty_spot:,.2f}" if banknifty_spot > 0 else "—"
+    v_lvl  = f"{vix_level:.2f}" if vix_level > 0 else "—"
 
-    # Base Embed setup
+    # ── VIX mood label ─────────────────────────────────────────────────────────
+    vix_mood = {"SPIKE": "⚠️ Spiking — volatility expanding",
+                "CRUSH": "✅ Crushing — ideal for credit spreads",
+                "STABLE": "➡️ Stable"}.get(vix_impact.upper(), vix_impact)
+
+    # ── Region tag ─────────────────────────────────────────────────────────────
+    region_tag = {"GLOBAL": "🌐 Global", "HEAVYWEIGHT": "🏋️ Heavyweight",
+                  "INDIAN": "🇮🇳 Indian"}.get(region, region)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # LINE 1: THE SIGNAL  (most important — visible without scrolling)
+    # Format: 🟢 BULLISH · 78% probability · Bull Put Spread
+    # ══════════════════════════════════════════════════════════════════════════
+    signal_line = f"{dir_icon} **{nifty_dir}** · {prob} probability · `{strategy}`"
+
     embed = {
-        "title": f"🚨 [{data.get('event_type')}] {data.get('event')}",
-        "description": f"**Headline:** {headline}",
+        "title": f"{event_name}",
+        "description": (
+            f"{signal_line}\n"
+            f">>> {headline}"
+        ),
         "color": color,
         "fields": []
     }
 
-    # 1. MACRO DATA BLOCK (Only adds if data exists)
-    if actual != 'N/A' or forecast != 'N/A' or (impact != 'N/A' and impact != 'NEUTRAL'):
-        embed["fields"].extend([
-            {"name": "📊 Actual Data", "value": f"**{actual}**", "inline": True},
-            {"name": "🎯 Forecast Data", "value": f"**{forecast}**", "inline": True},
-            {"name": "🏦 Fed / RBI Impact", "value": f"**{impact}**", "inline": False}
-        ])
-
-    # 2. MAIN STRATEGY BLOCK
+    # ── BLOCK A: Market snapshot (always shown, compact 3-col) ─────────────────
     embed["fields"].extend([
-        {"name": "Historical Probability", "value": f"**{prob}** {nifty_dir}", "inline": True},
-        {"name": "Nifty Spot", "value": n_spot, "inline": True},
-        {"name": "BankNifty Spot", "value": b_spot, "inline": True},
-        {"name": "VIX Impact", "value": data.get('vix_impact', 'N/A'), "inline": True},
-        {"name": "📈 Strategy", "value": f"**{data.get('suggested_strategy', 'N/A')}**", "inline": False}
+        {"name": "Nifty",     "value": n_spot,  "inline": True},
+        {"name": "BankNifty", "value": b_spot,  "inline": True},
+        {"name": "VIX",       "value": v_lvl,   "inline": True},
     ])
 
-    # 3. MICRO TARGET BLOCK (Only adds if there is a specific stock ticker)
-    stock, ticker = data.get('affected_stock', 'None'), data.get('target_ticker', 'NONE')
-    if ticker != 'NONE' and ticker != 'N/A':
-        s_spot = f"₹{target_spot:,}" if target_spot > 0 else "Market Closed"
+    # ── BLOCK B: VIX signal + region tag (1 row) ──────────────────────────────
+    embed["fields"].extend([
+        {"name": "VIX signal", "value": vix_mood,   "inline": True},
+        {"name": "Region",     "value": region_tag,  "inline": True},
+        {"name": "Type",       "value": f"`{event_type}`", "inline": True},
+    ])
+
+    # ── BLOCK C: Macro data — only when present and meaningful ────────────────
+    actual   = data.get('macro_actual_data', 'N/A')
+    forecast = data.get('macro_forecast_data', 'N/A')
+    rate_imp = data.get('macro_rate_impact', 'N/A')
+
+    has_macro = any(v not in ('N/A', 'NEUTRAL', '') for v in [actual, forecast, rate_imp])
+    if has_macro:
+        macro_val = ""
+        if actual   != 'N/A': macro_val += f"**Actual:** {actual}\n"
+        if forecast != 'N/A': macro_val += f"**Forecast:** {forecast}\n"
+        if rate_imp not in ('N/A', 'NEUTRAL'): macro_val += f"**CB Impact:** {rate_imp}"
         embed["fields"].append({
-            "name": f"🎯 Micro Target: {stock} ({ticker})", 
-            "value": f"Spot: **{s_spot}**\nStrategy: **{data.get('micro_strategy', 'N/A')}**", 
+            "name": "📊 Macro Data", "value": macro_val.strip(), "inline": False
+        })
+
+    # ── BLOCK D: Risk note — single clean line ────────────────────────────────
+    if hedging and hedging != 'N/A':
+        embed["fields"].append({
+            "name": "🛡️ Risk", "value": hedging, "inline": False
+        })
+
+    # ── BLOCK E: Micro target — only when a real ticker exists ───────────────
+    stock  = data.get('affected_stock', 'None')
+    ticker = data.get('target_ticker', 'NONE')
+    micro  = data.get('micro_strategy', 'N/A')
+
+    if ticker not in ('NONE', 'N/A', '', None):
+        s_spot = f"₹{target_spot:,.2f}" if target_spot > 0 else "—"
+        embed["fields"].append({
+            "name": f"🎯 {stock} ({ticker})",
+            "value": f"Spot: **{s_spot}** · {micro}",
             "inline": False
         })
 
-    # 4. CONTEXT & RISK BLOCK
-    embed["fields"].extend([
-        {"name": "🛡️ Risk", "value": data.get('strategy_hedging', 'N/A'), "inline": False}, 
-        {"name": "Historical Context", "value": data.get('reasoning', 'N/A'), "inline": False}
-    ])
-    
-    embed["footer"] = {"text": "Bade Sahab Live Macro Desk • 24/7 Global Scanner"}
-    
-    chart_ticker = ticker if ticker != 'NONE' else "^NSEI"
-    chart_spot = target_spot if ticker != 'NONE' else nifty_spot
-    chart_path = None
-    
-    # Only generate chart if spot price is > 0 (meaning market isn't completely offline/weekend flat)
+    # ── BLOCK F: Context — collapsed to 1 field, trimmed to 300 chars ─────────
+    if reasoning and reasoning != 'N/A':
+        short_reason = reasoning[:297] + "…" if len(reasoning) > 300 else reasoning
+        embed["fields"].append({
+            "name": "📌 Context", "value": short_reason, "inline": False
+        })
+
+    # ── Footer ────────────────────────────────────────────────────────────────
+    embed["footer"] = {
+        "text": f"Bade Sahab • {region_tag} • {datetime.now().strftime('%d %b %Y, %I:%M %p IST')}"
+    }
+
+    # ── Chart attachment ───────────────────────────────────────────────────────
+    chart_ticker = ticker if ticker not in ('NONE', 'N/A', '', None) else "^NSEI"
+    chart_spot   = target_spot if ticker not in ('NONE', 'N/A', '', None) else nifty_spot
+    chart_path   = None
+
     if chart_spot > 0:
         chart_path = chart_generator.create_entry_chart(chart_ticker, nifty_dir, chart_spot)
-        
-    # SMART ROUTING: Send to correct channel based on AI Region Classification
-    if region == "GLOBAL":
-        target_webhook = WEBHOOK_GLOBAL
-    elif region == "HEAVYWEIGHT":
-        target_webhook = WEBHOOK_HEAVYWEIGHT
-    else:
-        target_webhook = WEBHOOK_INDIAN
 
-    # Ensure we don't crash if a webhook isn't set up yet
-    if not target_webhook:
-        print(f"Warning: Webhook for {region} is missing. Defaulting to Indian/Radar.")
-        target_webhook = WEBHOOK_INDIAN
+    # ── Smart webhook routing ──────────────────────────────────────────────────
+    target_webhook = {
+        "GLOBAL":      WEBHOOK_GLOBAL,
+        "HEAVYWEIGHT": WEBHOOK_HEAVYWEIGHT,
+    }.get(region, WEBHOOK_INDIAN) or WEBHOOK_INDIAN
 
+    # ── Send ───────────────────────────────────────────────────────────────────
     try:
         if chart_path and os.path.exists(chart_path):
             embed["image"] = {"url": f"attachment://{os.path.basename(chart_path)}"}
             with open(chart_path, "rb") as f:
-                requests.post(target_webhook, data={"payload_json": json.dumps({"embeds": [embed]})}, files={"file": (os.path.basename(chart_path), f, "image/png")})
+                requests.post(
+                    target_webhook,
+                    data={"payload_json": json.dumps({"embeds": [embed]})},
+                    files={"file": (os.path.basename(chart_path), f, "image/png")}
+                )
             os.remove(chart_path)
         else:
             requests.post(target_webhook, json={"embeds": [embed]})
     except Exception as e:
         print(f"Failed to send alert: {e}")
-
-def main():
-    conn = init_database()
-    cursor = conn.cursor()
-    
-    # 🧹 Run the Janitor before anything else to clear old data
-    cleanup_database(conn, cursor)
-    
-    nifty_spot, banknifty_spot, vix_level = get_live_market_prices()
-
-    try:
-        # 1. Collect and filter headlines locally (The Zero-Token Bouncer)
-        headlines_to_analyze = []
-        for headline in news_fetcher.fetch_top_headlines():
-            if is_headline_duplicate(cursor, headline):
-                continue 
-                
-            if not is_worth_analyzing(headline):
-                print(f"Skipped Corporate Noise (Local Bouncer): {headline}")
-                # Still save it as IGNORE so it doesn't get processed again next 10 mins
-                save_to_database(conn, cursor, headline, {"event_type": "IGNORE", "impact_score": 0}, nifty_spot, banknifty_spot, vix_level, 0)
-                continue
-                
-            headlines_to_analyze.append(headline)
-
-        # 2. Batch process the surviving headlines in ONE API call!
-        if headlines_to_analyze:
-            try:
-                batch_response = analyzer.analyze_headlines_batch(headlines_to_analyze)
-                parsed_batch = json.loads(batch_response).get("analyses", [])
-                
-                # 3. Handle the returned data normally
-                for data in parsed_batch:
-                    headline = data.get("headline_analyzed")
-                    if not headline: 
-                        continue
-                        
-                    target_spot = get_target_price(data.get("target_ticker", "NONE"))
-                    
-                    # Check for duplicate events BEFORE saving to the DB
-                    is_duplicate = is_event_duplicate(cursor, data.get("event", "Unknown"))
-                    
-                    # 🛑 ALWAYS save to database so the PRE-API check remembers this exact string for next time!
-                    save_to_database(conn, cursor, headline, data, nifty_spot, banknifty_spot, vix_level, target_spot)
-                    
-                    # ANTI-NOISE FILTER: Skip Discord alert for IGNORE or low impact
-                    if data.get("event_type", "OTHER") == "IGNORE" or int(data.get("impact_score", 0)) < 40:
-                        print(f"Skipped Corporate Noise (Saved to Blocklist): {headline}")
-                        continue
-
-                    # POST-API CHECK: Skip Discord alert if event was already reported
-                    if is_duplicate: 
-                        print(f"Skipped duplicate event (Saved to Blocklist): {headline}")
-                        continue
-                        
-                    send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level, target_spot)
-                    
-                    # Add a 2-second delay between Discord posts to avoid rate-limiting if there are multiple hits
-                    time.sleep(2)
-            except Exception as e:
-                print(f"Error processing batch API response: {e}")
-                conn.rollback()
-
-    except Exception as e:
-        print(e)
-    finally:
-        cursor.close()
-        conn.close()
 
 if __name__ == "__main__":
     main()
