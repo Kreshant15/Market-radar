@@ -25,6 +25,9 @@ class MarketAnalysis(BaseModel):
     affected_stock: str = Field(description="Specific company mentioned, or 'None'")
     target_ticker: str = Field(description="Yahoo Finance ticker (e.g., 'RELIANCE.NS'). 'NONE' if no specific stock.")
     micro_strategy: str = Field(description="Targeted stock-specific options strategy. 'N/A' if none.")
+    macro_actual_data: str = Field(description="If a macro event was just released (CPI, Repo Rate, PCE), the exact numerical data reported (e.g., '4.1%'). If upcoming or N/A, put 'N/A'.")
+    macro_forecast_data: str = Field(description="The expected consensus number (e.g., '2.0%'). If N/A, put 'N/A'.")
+    macro_rate_impact: str = Field(description="Strictly: '⬆️ RATE HIKE EXPECTED', '⬇️ RATE CUT EXPECTED', or '➖ NEUTRAL'. Put 'N/A' if not a macro event.")
 
 class BatchMarketAnalysis(BaseModel):
     analyses: list[MarketAnalysis]
@@ -50,6 +53,11 @@ def analyze_headlines_batch(headlines: list[str]) -> str:
         f"2. HISTORICAL PROBABILITY: If this is a Macro event (US Fed, RBI, CPI, NFP, GDP, FII/DII, Crude, War), evaluate the `direction_probability` as a strict percentage (e.g., '75%'). Calculate this based on previous years' historical data (how markets usually react to rate cuts, inflation spikes, etc.).\n"
         f"3. REASONING: Your reasoning MUST mention the historical context.\n"
         f"4. REGION CLASSIFICATION: You MUST classify `event_region` as 'HEAVYWEIGHT', 'GLOBAL', or 'INDIAN'.\n\n"
+        f"🚨 NEW NERO UPGRADE FOR MACRO DATA 🚨\n"
+        f"If the headline mentions macroeconomic data (like CPI, PCE, Repo Rate, Jobless Claims) that has just been released or is upcoming:\n"
+        f" - You MUST extract the exact numerical value and put it in `macro_actual_data`.\n"
+        f" - You MUST extract or estimate the consensus expectation and put it in `macro_forecast_data`.\n"
+        f" - You MUST determine the central bank impact and put it in `macro_rate_impact` (e.g., '⬆️ RATE HIKE EXPECTED').\n\n"
         f"When suggesting an options strategy:\n"
         f"- If Bullish + VIX Spike: Bull Call Spread / Long Calls.\n"
         f"- If Bearish + VIX Spike: Bear Put Spread / Long Puts.\n"

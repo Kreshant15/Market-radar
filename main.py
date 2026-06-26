@@ -46,7 +46,8 @@ def init_database(retries=3, delay=5):
                 "suggested_strategy": "TEXT", "verdict_issued": "BOOLEAN DEFAULT FALSE", "pnl_inr": "NUMERIC",
                 "affected_sector": "TEXT", "affected_stock": "TEXT", "target_ticker": "TEXT",
                 "micro_strategy": "TEXT", "target_spot": "NUMERIC", "trap_checked": "BOOLEAN DEFAULT FALSE",
-                "direction_probability": "TEXT", "event_region": "TEXT", "nifty_direction": "TEXT"
+                "direction_probability": "TEXT", "event_region": "TEXT", "nifty_direction": "TEXT",
+                "macro_actual_data": "TEXT", "macro_forecast_data": "TEXT", "macro_rate_impact": "TEXT"
             }
             
             for column, col_type in columns_to_add.items():
@@ -156,14 +157,15 @@ def cleanup_database(conn, cursor):
 def save_to_database(conn, cursor, headline, data, nifty_spot, banknifty_spot, vix_level, target_spot):
     cursor.execute('''
         INSERT INTO events (headline, event, event_type, impact_score, confidence, timestamp, reasoning, 
-        nifty_spot, banknifty_spot, vix_level, suggested_strategy, affected_sector, affected_stock, target_ticker, micro_strategy, target_spot, direction_probability, event_region, nifty_direction)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        nifty_spot, banknifty_spot, vix_level, suggested_strategy, affected_sector, affected_stock, target_ticker, micro_strategy, target_spot, direction_probability, event_region, nifty_direction, macro_actual_data, macro_forecast_data, macro_rate_impact)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ''', (
         headline, data.get("event", "Unknown"), data.get("event_type", "OTHER"), data.get("impact_score", 0), data.get("confidence", 0),
         datetime.now(), data.get("reasoning", ""), nifty_spot if nifty_spot > 0 else None, banknifty_spot if banknifty_spot > 0 else None,
         vix_level if vix_level > 0 else None, data.get("suggested_strategy", "N/A"), data.get("affected_sector", "Broader Market"),
         data.get("affected_stock", "None"), data.get("target_ticker", "NONE"), data.get("micro_strategy", "N/A"), target_spot if target_spot > 0 else None,
-        data.get("direction_probability", "N/A"), data.get("event_region", "INDIAN"), data.get("nifty_direction", "NEUTRAL")
+        data.get("direction_probability", "N/A"), data.get("event_region", "INDIAN"), data.get("nifty_direction", "NEUTRAL"),
+        data.get("macro_actual_data", "N/A"), data.get("macro_forecast_data", "N/A"), data.get("macro_rate_impact", "N/A")
     ))
     conn.commit()
 
@@ -176,6 +178,10 @@ def send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level, ta
     # Format spot strings, noting if market is closed (e.g. Sunday)
     n_spot = f"₹{nifty_spot:,}" if nifty_spot > 0 else "Market Closed"
     b_spot = f"₹{banknifty_spot:,}" if banknifty_spot > 0 else "Market Closed"
+
+    actual = data.get('macro_actual_data', 'N/A')
+    forecast = data.get('macro_forecast_data', 'N/A')
+    impact = data.get('macro_rate_impact', 'N/A')
 
     embed = {
         "title": f"🚨 [{data.get('event_type')}] {data.get('event')}",
@@ -190,6 +196,22 @@ def send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level, ta
         ],
         "footer": {"text": "Bade Sahab Live Macro Desk • 24/7 Global Scanner"}
     }
+
+    # NERO'S UPGRADE: Put the exact macro numbers at the top if they exist!
+    if actual != 'N/A' or forecast != 'N/A' or (impact != 'N/A' and impact != 'NEUTRAL'):
+        embed["fields"].extend([
+            {"name": "📊 Actual Data", "value": f"**{actual}**", "inline": True},
+            {"name": "🎯 Forecast Data", "value": f"**{forecast}**", "inline": True},
+            {"name": "🏦 Fed / RBI Impact", "value": f"**{impact}**", "inline": False}
+        ])
+
+    embed["fields"].extend([
+        {"name": "Historical Probability", "value": f"**{prob}** {nifty_dir}", "inline": True},
+        {"name": "Nifty Spot", "value": n_spot, "inline": True},
+        {"name": "BankNifty Spot", "value": b_spot, "inline": True},
+        {"name": "VIX Impact", "value": data.get('vix_impact'), "inline": True},
+        {"name": "📈 Strategy", "value": f"**{data.get('suggested_strategy', 'N/A')}**", "inline": False}
+    ])
 
     stock, sector, ticker = data.get('affected_stock', 'None'), data.get('affected_sector', 'Broader Market'), data.get('target_ticker', 'NONE')
     if stock != 'None' or sector != 'Broader Market':
