@@ -183,21 +183,15 @@ def send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level, ta
     forecast = data.get('macro_forecast_data', 'N/A')
     impact = data.get('macro_rate_impact', 'N/A')
 
+    # Base Embed setup
     embed = {
         "title": f"🚨 [{data.get('event_type')}] {data.get('event')}",
         "description": f"**Headline:** {headline}",
         "color": color,
-        "fields": [
-            {"name": "Historical Probability", "value": f"**{prob}** {nifty_dir}", "inline": True},
-            {"name": "Nifty Spot", "value": n_spot, "inline": True},
-            {"name": "BankNifty Spot", "value": b_spot, "inline": True},
-            {"name": "VIX Impact", "value": data.get('vix_impact'), "inline": True},
-            {"name": "📈 Strategy", "value": f"**{data.get('suggested_strategy', 'N/A')}**", "inline": False}
-        ],
-        "footer": {"text": "Bade Sahab Live Macro Desk • 24/7 Global Scanner"}
+        "fields": []
     }
 
-    # NERO'S UPGRADE: Put the exact macro numbers at the top if they exist!
+    # 1. MACRO DATA BLOCK (Only adds if data exists)
     if actual != 'N/A' or forecast != 'N/A' or (impact != 'N/A' and impact != 'NEUTRAL'):
         embed["fields"].extend([
             {"name": "📊 Actual Data", "value": f"**{actual}**", "inline": True},
@@ -205,20 +199,32 @@ def send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level, ta
             {"name": "🏦 Fed / RBI Impact", "value": f"**{impact}**", "inline": False}
         ])
 
+    # 2. MAIN STRATEGY BLOCK
     embed["fields"].extend([
         {"name": "Historical Probability", "value": f"**{prob}** {nifty_dir}", "inline": True},
         {"name": "Nifty Spot", "value": n_spot, "inline": True},
         {"name": "BankNifty Spot", "value": b_spot, "inline": True},
-        {"name": "VIX Impact", "value": data.get('vix_impact'), "inline": True},
+        {"name": "VIX Impact", "value": data.get('vix_impact', 'N/A'), "inline": True},
         {"name": "📈 Strategy", "value": f"**{data.get('suggested_strategy', 'N/A')}**", "inline": False}
     ])
 
-    stock, sector, ticker = data.get('affected_stock', 'None'), data.get('affected_sector', 'Broader Market'), data.get('target_ticker', 'NONE')
-    if stock != 'None' or sector != 'Broader Market':
+    # 3. MICRO TARGET BLOCK (Only adds if there is a specific stock ticker)
+    stock, ticker = data.get('affected_stock', 'None'), data.get('target_ticker', 'NONE')
+    if ticker != 'NONE' and ticker != 'N/A':
         s_spot = f"₹{target_spot:,}" if target_spot > 0 else "Market Closed"
-        embed["fields"].append({"name": f"🎯 Micro Target: {stock if stock != 'None' else sector} ({ticker})", "value": f"Spot: **{s_spot}**\nStrategy: **{data.get('micro_strategy', 'N/A')}**", "inline": False})
+        embed["fields"].append({
+            "name": f"🎯 Micro Target: {stock} ({ticker})", 
+            "value": f"Spot: **{s_spot}**\nStrategy: **{data.get('micro_strategy', 'N/A')}**", 
+            "inline": False
+        })
 
-    embed["fields"].extend([{"name": "🛡️ Risk", "value": data.get('strategy_hedging', 'N/A'), "inline": False}, {"name": "Historical Context", "value": data.get('reasoning'), "inline": False}])
+    # 4. CONTEXT & RISK BLOCK
+    embed["fields"].extend([
+        {"name": "🛡️ Risk", "value": data.get('strategy_hedging', 'N/A'), "inline": False}, 
+        {"name": "Historical Context", "value": data.get('reasoning', 'N/A'), "inline": False}
+    ])
+    
+    embed["footer"] = {"text": "Bade Sahab Live Macro Desk • 24/7 Global Scanner"}
     
     chart_ticker = ticker if ticker != 'NONE' else "^NSEI"
     chart_spot = target_spot if ticker != 'NONE' else nifty_spot
