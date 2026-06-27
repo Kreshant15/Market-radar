@@ -126,7 +126,7 @@ Keep total response under 300 words. Be direct. No fluff."""
     for attempt, delay in enumerate(delays):
         try:
             response = client.models.generate_content(
-                model="gemini-2.0-flash-lite",
+                model="gemini-3.1-flash-lite",
                 contents=prompt
             )
             return response.text
