@@ -5,6 +5,7 @@ import yfinance as yf
 import psycopg2
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 load_dotenv()
 
@@ -138,7 +139,7 @@ def send_level_alert(item, current_price):
             {"name": "Current Spot", "value": f"₹{current_price:,.2f}", "inline": True},
             {"name": "Type", "value": item['type'], "inline": True},
         ],
-        "footer": {"text": f"Bade Sahab · Technical Monitor · {datetime.now().strftime('%d %b %Y, %I:%M %p IST')}"}
+        "footer": {"text": f"Bade Sahab · Technical Monitor · {datetime.now(ZoneInfo('Asia/Kolkata')).strftime('%d %b %Y, %I:%M %p IST')}"}
     }
 
     _send(embed)
@@ -162,7 +163,7 @@ def send_point_move_alert(ticker, name, prev_price, current_price, move_pts):
             {"name": "Current",   "value": f"₹{current_price:,.2f}", "inline": True},
             {"name": "Move",      "value": f"{'+' if is_up else ''}{move_pts:.0f} pts", "inline": True},
         ],
-        "footer": {"text": f"Bade Sahab · Live Pulse · {datetime.now().strftime('%d %b %Y, %I:%M %p IST')}"}
+        "footer": {"text": f"Bade Sahab · Live Pulse · {datetime.now(ZoneInfo('Asia/Kolkata')).strftime('%d %b %Y, %I:%M %p IST')}"}
     }
 
     _send(embed)

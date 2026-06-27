@@ -6,6 +6,7 @@ import requests
 import yfinance as yf
 import difflib
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 import news_fetcher
 import analyzer
@@ -271,7 +272,7 @@ def send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level, ta
 
     # ── Footer ────────────────────────────────────────────────────────────────
     embed["footer"] = {
-        "text": f"Bade Sahab • {region_tag} • {datetime.now().strftime('%d %b %Y, %I:%M %p IST')}"
+        "text": f"Bade Sahab • {region_tag} • {datetime.now(ZoneInfo('Asia/Kolkata')).strftime('%d %b %Y, %I:%M %p IST')}"
     }
 
     # ── Chart attachment ───────────────────────────────────────────────────────

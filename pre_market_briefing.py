@@ -6,6 +6,7 @@ import re
 import time
 import yfinance as yf
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from google import genai
 
@@ -137,7 +138,7 @@ Keep total response under 300 words. Be direct. No fluff."""
             time.sleep(delay)
 
 def send_discord_briefing(briefing_text, cues, sentiment, color):
-    now = datetime.now().strftime('%d %b %Y, %I:%M %p IST')
+    now = datetime.now(ZoneInfo("Asia/Kolkata")).strftime('%d %b %Y, %I:%M %p IST')
 
     # ── Global cues as compact 2-col fields ───────────────────────────────────
     cue_fields = []

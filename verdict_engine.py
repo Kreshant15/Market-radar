@@ -178,7 +178,7 @@ def process_and_send_verdict(conn, cursor, event_data, current_nifty):
             },
         ],
         "footer": {
-            "text": f"Bade Sahab · Virtual Ledger · {datetime.now().strftime('%d %b %Y, %I:%M %p IST')}"
+            "text": f"Bade Sahab · Virtual Ledger · {datetime.now(ZoneInfo('Asia/Kolkata')).strftime('%d %b %Y, %I:%M %p IST')}"
         }
     }
 
