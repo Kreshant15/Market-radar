@@ -1,0 +1,20 @@
+name: F&O Recommendation Engine
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-fo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - run: pip install -r requirements.txt
+      - name: Run F&O Engine
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DISCORD_WEBHOOK_PREMARKET: ${{ secrets.DISCORD_WEBHOOK_PREMARKET }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python fo_recommendation.py
