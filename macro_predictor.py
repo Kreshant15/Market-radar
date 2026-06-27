@@ -1,8 +1,10 @@
 import os
 import json
 import feedparser
+import psycopg2
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -10,66 +12,96 @@ from pydantic import BaseModel, Field
 
 load_dotenv()
 DISCORD_WEBHOOK_MACRO = os.getenv("DISCORD_WEBHOOK_MACRO")
+DB_URL                = os.getenv("DATABASE_URL")
 
-# Define the strict structured output requested by your friends
 class MacroEvent(BaseModel):
-    event_name: str = Field(description="Name of the event (e.g., US Fed Rate Decision, India CPI, RBI Repo Rate, Bitcoin Halving)")
-    days_away: str = Field(description="When it happens (e.g., 'In 2 Days', 'Tomorrow')")
-    outcome_prob_1: str = Field(description="Primary outcome and probability (e.g., 'Rate Cut: 70%')")
-    outcome_prob_2: str = Field(description="Secondary outcome and probability (e.g., 'Hold/Pause: 20%')")
-    outcome_prob_3: str = Field(description="Tertiary outcome and probability (e.g., 'Rate Hike: 10%')")
-    historical_bullish: str = Field(description="Based on past years, % chance the market reacts bullishly to the likely outcome")
-    historical_bearish: str = Field(description="Based on past years, % chance the market reacts bearishly")
-    fii_dii_context: str = Field(description="Brief note on FIIs/DIIs or Global Whales positioning")
-    analysis: str = Field(description="1-2 sentences on what to expect.")
+    event_name:         str = Field(description="Name of the event e.g. US Fed Rate Decision, India CPI, RBI Repo Rate")
+    days_away:          str = Field(description="When it happens e.g. 'In 2 Days', 'Tomorrow'")
+    outcome_prob_1:     str = Field(description="Primary outcome and probability e.g. 'Rate Cut: 70%'")
+    outcome_prob_2:     str = Field(description="Secondary outcome and probability e.g. 'Hold/Pause: 20%'")
+    outcome_prob_3:     str = Field(description="Tertiary outcome and probability e.g. 'Rate Hike: 10%'")
+    historical_bullish: str = Field(description="% chance market reacts bullishly based on past years")
+    historical_bearish: str = Field(description="% chance market reacts bearishly based on past years")
+    fii_dii_context:    str = Field(description="Brief note on FII/DII or global whale positioning")
+    analysis:           str = Field(description="1-2 sentences on what to expect")
 
 class MacroReport(BaseModel):
-    major_events_found: bool = Field(description="Set to true ONLY if there is a major macro event in the next 1-4 days")
-    events: list[MacroEvent]
+    major_events_found: bool           = Field(description="True ONLY if major macro event in next 1-4 days")
+    events:             list[MacroEvent]
 
+# ── DEDUP ─────────────────────────────────────────────────────────────────────
+def get_db():
+    conn   = psycopg2.connect(DB_URL)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS macro_alerts (
+            id         SERIAL PRIMARY KEY,
+            event_name TEXT,
+            timestamp  TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    conn.commit()
+    return conn, cursor
+
+def was_recently_alerted(cursor, event_name):
+    """Block re-alerting the same macro event within 20 hours."""
+    cutoff = datetime.now() - timedelta(hours=20)
+    cursor.execute(
+        "SELECT 1 FROM macro_alerts WHERE event_name = %s AND timestamp > %s",
+        (event_name, cutoff)
+    )
+    return cursor.fetchone() is not None
+
+def log_macro_alert(conn, cursor, event_name):
+    cursor.execute(
+        "INSERT INTO macro_alerts (event_name) VALUES (%s)", (event_name,)
+    )
+    # Keep table lean — only last 100 rows
+    cursor.execute("""
+        DELETE FROM macro_alerts WHERE id IN (
+            SELECT id FROM macro_alerts ORDER BY timestamp DESC OFFSET 100
+        )
+    """)
+    conn.commit()
+
+# ── FETCH ─────────────────────────────────────────────────────────────────────
 def fetch_macro_previews():
-    """Fetches news specifically looking for upcoming macroeconomic and crypto expectations."""
     queries = [
-        # Indian Macro (RBI, Repo Rates, GDP)
-        "Upcoming (RBI OR Repo Rate OR Reverse Repo OR India CPI OR India GDP) (expectations OR preview OR poll) when:48h",
-        # Global Macro (Fed, NFP, Crude) - US Region targeted
-        "Upcoming (US Fed OR FOMC OR US CPI OR NFP OR Non-Farm Payrolls OR Crude Oil) (expectations OR preview) when:48h",
-        # Crypto & Bitcoin
-        "Upcoming (Bitcoin OR Crypto OR Ethereum) (expectations OR forecast OR options expiry OR SEC) when:48h"
+        ("Upcoming (RBI OR Repo Rate OR India CPI OR India GDP) (expectations OR preview OR poll) when:48h",
+         "en-IN&gl=IN&ceid=IN:en"),
+        ("Upcoming (US Fed OR FOMC OR US CPI OR NFP OR Non-Farm Payrolls OR Crude Oil) (expectations OR preview) when:48h",
+         "en-US&gl=US&ceid=US:en"),
+        ("Upcoming (Bitcoin OR Crypto OR Ethereum) (expectations OR forecast OR options expiry) when:48h",
+         "en-US&gl=US&ceid=US:en"),
     ]
-    
-    headlines = []
-    
-    # 1. Fetch from Google News (Splitting into US and IN regions for better local results)
-    for i, query in enumerate(queries):
-        region = "en-IN&gl=IN&ceid=IN:en" if i == 0 else "en-US&gl=US&ceid=US:en"
-        url = f"https://news.google.com/rss/search?q={query.replace(' ', '+')}&hl={region}"
-        feed = feedparser.parse(url)
-        headlines.extend([entry.title for entry in feed.entries[:6]])
 
-    # 2. Add CoinDesk specifically for crypto macro previews
+    headlines = []
+    for query, region in queries:
+        url  = f"https://news.google.com/rss/search?q={query.replace(' ', '+')}&hl={region}"
+        feed = feedparser.parse(url)
+        headlines.extend([e.title for e in feed.entries[:6]])
+
     coindesk = feedparser.parse("https://www.coindesk.com/arc/outboundfeeds/rss/")
-    headlines.extend([entry.title for entry in coindesk.entries[:4]])
-    
-    # Return unique headlines
+    headlines.extend([e.title for e in coindesk.entries[:4]])
+
     return "\n".join(list(set(headlines)))
 
+# ── GENERATE ──────────────────────────────────────────────────────────────────
 def generate_macro_probabilities(headlines_text):
-    """Passes the previews to Gemini to calculate quant probabilities."""
     if not headlines_text:
         return None
 
     client = genai.Client()
     prompt = (
-        "You are an Elite Quantitative Macro Analyst for an Indian Hedge Fund. "
-        "Review the following news headlines covering the next few days.\n\n"
-        f"Headlines:\n{headlines_text}\n\n"
-        "Identify if there are any MAJOR macroeconomic events happening in the next 1 to 4 days "
-        "(Focus on: US Fed, RBI Repo Rates, CPI, NFP, GDP, Crude Oil, FII data, Geopolitics, and Major Bitcoin/Crypto movements).\n"
-        "If yes, estimate the exact probabilities for the outcomes based on market consensus, "
-        "and estimate the historical win rate (Bullish vs Bearish) of this type of event."
+        "You are an Elite Quantitative Macro Analyst for an Indian Hedge Fund.\n"
+        f"Today is {datetime.now(ZoneInfo('Asia/Kolkata')).strftime('%A, %d %B %Y')}.\n\n"
+        f"Review these headlines:\n{headlines_text}\n\n"
+        "Identify MAJOR macroeconomic events in the next 1-4 days "
+        "(US Fed, RBI, CPI, NFP, GDP, Crude Oil, FII data, Geopolitics, major Crypto events).\n"
+        "Estimate exact outcome probabilities from market consensus and historical win rates.\n"
+        "Be specific with event names — avoid vague names like 'Market Event'."
     )
-    
+
     try:
         response = client.models.generate_content(
             model="gemini-3.1-flash-lite",
@@ -77,58 +109,89 @@ def generate_macro_probabilities(headlines_text):
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema=MacroReport,
-                temperature=0.1, 
+                temperature=0.1,
             ),
         )
         return json.loads(response.text)
     except Exception as e:
-        print(f"Error generating prediction: {e}")
+        print(f"Gemini error: {e}")
         return None
 
+# ── SEND ──────────────────────────────────────────────────────────────────────
 def send_macro_alert(event):
-# ... existing send_macro_alert code from before ...
+    now_ist = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y, %I:%M %p IST")
     embed = {
-        "title": f"🔮 ADVANCE WARNING: {event.get('event_name')}",
+        "title":       f"🔮 Advance Warning · {event.get('event_name')}",
         "description": f"**Timing:** {event.get('days_away')}\n*Institutional predictive model activated.*",
-        "color": 10181046, # Deep Purple for Quant/Macro alerts
+        "color":       10181046,
         "fields": [
-            {"name": "📊 Outcome Probabilities", "value": f"1️⃣ {event.get('outcome_prob_1')}\n2️⃣ {event.get('outcome_prob_2')}\n3️⃣ {event.get('outcome_prob_3')}", "inline": False},
-            {"name": "📈 Historical Market Reaction", "value": f"🟩 **Bullish Probability:** {event.get('historical_bullish')}\n🟥 **Bearish Probability:** {event.get('historical_bearish')}", "inline": False},
-            {"name": "💼 Whales/FII Positioning", "value": event.get('fii_dii_context', 'N/A'), "inline": False},
-            {"name": "🧠 AI Quant Analysis", "value": event.get('analysis', ''), "inline": False}
+            {
+                "name":  "📊 Outcome Probabilities",
+                "value": (
+                    f"1️⃣ {event.get('outcome_prob_1')}\n"
+                    f"2️⃣ {event.get('outcome_prob_2')}\n"
+                    f"3️⃣ {event.get('outcome_prob_3')}"
+                ),
+                "inline": False
+            },
+            {
+                "name":  "📈 Historical Market Reaction",
+                "value": (
+                    f"🟩 **Bullish:** {event.get('historical_bullish')}\n"
+                    f"🟥 **Bearish:** {event.get('historical_bearish')}"
+                ),
+                "inline": False
+            },
+            {"name": "💼 Whales / FII Positioning", "value": event.get("fii_dii_context", "N/A"), "inline": False},
+            {"name": "🧠 AI Quant Analysis",         "value": event.get("analysis", "N/A"),         "inline": False},
         ],
-        "footer": {"text": "Bade Sahab Quant Desk • Predictive Advance Radar"}
+        "footer": {"text": f"Bade Sahab · Quant Desk · {now_ist}"}
     }
-    
-    try:
-        requests.post(DISCORD_WEBHOOK_MACRO, json={"embeds": [embed]})
-        print(f"Sent macro advance warning for {event.get('event_name')}")
-    except Exception as e:
-        print(f"Failed to send Discord alert: {e}")
 
+    try:
+        requests.post(DISCORD_WEBHOOK_MACRO, json={"embeds": [embed]}, timeout=10)
+        print(f"Macro alert sent: {event.get('event_name')}")
+    except Exception as e:
+        print(f"Discord send failed: {e}")
+
+# ── MAIN ──────────────────────────────────────────────────────────────────────
 def main():
-# ... existing main code ...
-    print("Running Macro Advance Radar...")
+    print("Macro Advance Radar starting...")
+    conn, cursor = get_db()
+
     headlines = fetch_macro_previews()
-    
     if not headlines:
-        print("No macro news found today.")
+        print("No macro headlines found.")
+        cursor.close(); conn.close()
         return
-        
-    print("Analyzing upcoming events and calculating probabilities...")
+
     report = generate_macro_probabilities(headlines)
-    
     if not report:
-        print("Failed to parse AI response.")
+        print("Gemini parse failed.")
+        cursor.close(); conn.close()
         return
-        
+
     if not report.get("major_events_found"):
-        print("No major macro events detected in the next 1-4 days. Staying silent.")
+        print("No major macro events in next 1-4 days — staying silent.")
+        cursor.close(); conn.close()
         return
-        
-    print(f"Found {len(report.get('events', []))} upcoming events! Sending warnings...")
-    for event in report.get("events", []):
+
+    events = report.get("events", [])
+    print(f"Found {len(events)} events.")
+
+    fired = 0
+    for event in events:
+        name = event.get("event_name", "Unknown")
+        if was_recently_alerted(cursor, name):
+            print(f"Skipped (already alerted today): {name}")
+            continue
         send_macro_alert(event)
+        log_macro_alert(conn, cursor, name)
+        fired += 1
+
+    print(f"Sent {fired} new macro warnings.")
+    cursor.close()
+    conn.close()
 
 if __name__ == "__main__":
     main()
