@@ -1,134 +1,181 @@
 import os
 import requests
 import yfinance as yf
-import pandas as pd
+import psycopg2
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
 load_dotenv()
-# Sending these highly technical alerts to the Intraday channel
-DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_INTRADAY") 
+DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_INTRADAY")
+DB_URL          = os.getenv("DATABASE_URL")
 
-class GoldenPocketSniper:
-    def __init__(self, ticker, name):
-        self.ticker = ticker
-        self.name = name
-        self.ema_period = 200 # NERO'S SETTING: The Institutional Line in the Sand
+WATCHLIST = [
+    {"ticker": "^NSEI",    "name": "Nifty 50",         "currency": "₹"},
+    {"ticker": "^NSEBANK", "name": "Bank Nifty",        "currency": "₹"},
+    {"ticker": "BTC-USD",  "name": "Bitcoin",           "currency": "$"},
+]
 
-    def fetch_and_calculate(self):
-        """Fetches 15m data, calculates the 200 EMA, and maps the 0.68 Golden Pocket & 0.786 Stop Loss."""
-        try:
-            # 1. Fetch 15 days of 15m data (Required to calculate 200 EMA accurately)
-            asset = yf.Ticker(self.ticker)
-            df = asset.history(period="15d", interval="15m")
-            if df.empty or len(df) < self.ema_period: 
-                return None
+EMA_PERIOD    = 200
+COOLDOWN_MINS = 60  # Don't re-alert same ticker within this window
 
-            # 2. Calculate Nero's Trend Filter (200 EMA)
-            df['EMA_200'] = df['Close'].ewm(span=self.ema_period, adjust=False).mean()
+def was_recently_alerted(cursor, ticker):
+    cutoff = datetime.now() - timedelta(minutes=COOLDOWN_MINS)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS fib_alerts (
+            id SERIAL PRIMARY KEY,
+            ticker TEXT,
+            direction TEXT,
+            timestamp TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    cursor.execute(
+        "SELECT 1 FROM fib_alerts WHERE ticker = %s AND timestamp > %s",
+        (ticker, cutoff)
+    )
+    return cursor.fetchone() is not None
 
-            # 3. Identify Swing High and Swing Low over the recent price action (Last 3 days / ~75 candles)
-            recent_df = df.tail(75) 
-            swing_high = recent_df['High'].max()
-            swing_low = recent_df['Low'].min()
-            diff = swing_high - swing_low
+def log_alert(conn, cursor, ticker, direction):
+    cursor.execute(
+        "INSERT INTO fib_alerts (ticker, direction) VALUES (%s, %s)",
+        (ticker, direction)
+    )
+    # Keep table lean
+    cursor.execute("""
+        DELETE FROM fib_alerts WHERE id IN (
+            SELECT id FROM fib_alerts WHERE ticker = %s
+            ORDER BY timestamp DESC OFFSET 50
+        )
+    """, (ticker,))
+    conn.commit()
 
-            # 4. Extract live current market conditions
-            current = df.iloc[-1]
-            close_price = current['Close']
-            low_price = current['Low']
-            high_price = current['High']
-            ema_200 = current['EMA_200']
-
-            setup = None
-
-            # --- BULLISH SETUP (Price > 200 EMA) ---
-            if close_price > ema_200:
-                # Calculate Pullback Fibs from High to Low
-                fib_0618 = swing_high - (diff * 0.618)
-                fib_0680 = swing_high - (diff * 0.680) # Nero's custom boundary
-                fib_0786 = swing_high - (diff * 0.786) # Nero's custom invalidation Stop Loss
-                
-                # Did the price dip into the Golden Pocket?
-                if fib_0680 <= low_price <= fib_0618:
-                    setup = {
-                        "direction": "BULLISH (Buy the Dip)",
-                        "color": 5763719, # Green
-                        "zone": f"₹{fib_0680:,.2f} - ₹{fib_0618:,.2f}",
-                        "sl": f"₹{fib_0786:,.2f}", # Hard Stop Loss precisely at the 0.786 level
-                        "spot": close_price,
-                        "ema": ema_200
-                    }
-
-            # --- BEARISH SETUP (Price < 200 EMA) ---
-            elif close_price < ema_200:
-                # Calculate Pullback Fibs from Low to High
-                fib_0618 = swing_low + (diff * 0.618)
-                fib_0680 = swing_low + (diff * 0.680)
-                fib_0786 = swing_low + (diff * 0.786) # Nero's custom invalidation Stop Loss
-                
-                # Did the price rally up into the Golden Pocket?
-                if fib_0618 <= high_price <= fib_0680:
-                    setup = {
-                        "direction": "BEARISH (Sell the Rally)",
-                        "color": 15548997, # Red
-                        "zone": f"₹{fib_0618:,.2f} - ₹{fib_0680:,.2f}",
-                        "sl": f"₹{fib_0786:,.2f}", # Hard Stop Loss precisely at the 0.786 level
-                        "spot": close_price,
-                        "ema": ema_200
-                    }
-
-            return setup
-
-        except Exception as e:
-            print(f"Error processing {self.ticker}: {e}")
+def calculate_setup(ticker):
+    try:
+        df = yf.Ticker(ticker).history(period="15d", interval="15m")
+        if df.empty or len(df) < EMA_PERIOD:
             return None
 
-    def alert_discord(self, setup):
-        """Dispatches the setup to the desk."""
-        if not setup: return
-        
-        # Format for Crypto vs INR
-        currency = "$" if "BTC" in self.ticker else "₹"
-        
-        embed = {
-            "title": f"🎯 NERO'S FIBONACCI SCALP: {self.name}",
-            "description": f"**15-Minute Golden Pocket Triggered**\n0.618 - 0.68 Zone + 200 EMA Confluence active.",
-            "color": setup['color'],
-            "fields": [
-                {"name": "Action", "value": f"**{setup['direction']}**", "inline": True},
-                {"name": "Current Spot", "value": f"{currency}{setup['spot']:,.2f}", "inline": True},
-                {"name": "Trend Filter", "value": f"200 EMA @ {currency}{setup['ema']:,.2f}", "inline": True},
-                {"name": "Golden Pocket Zone", "value": setup['zone'].replace("₹", currency), "inline": False},
-                {"name": "🛡️ Strict Stop Loss", "value": setup['sl'].replace("₹", currency), "inline": True},
-                {"name": "Mathematical Logic", "value": "Price has pulled back directly into the 61.8% - 68.0% value area while remaining aligned with the broader 200 EMA institutional trend. Invalidated if price breaks past the 78.6% level.", "inline": False}
-            ],
-            "footer": {"text": "Bade Sahab Tech Scanner • Custom Indicator Logic"}
-        }
+        df["EMA_200"] = df["Close"].ewm(span=EMA_PERIOD, adjust=False).mean()
 
-        try:
-            requests.post(DISCORD_WEBHOOK, json={"embeds": [embed]})
-            print(f"Fibonacci Alert fired for {self.name}!")
-        except Exception as e:
-            print(f"Failed to send Discord alert: {e}")
+        # Dynamic swing window: last 3 days of 15m candles
+        candles_per_day = 26  # ~6.5 hrs × 4 candles/hr
+        recent_df   = df.tail(candles_per_day * 3)
+        swing_high  = recent_df["High"].max()
+        swing_low   = recent_df["Low"].min()
+        diff        = swing_high - swing_low
 
-def main():
-    print("Initiating Golden Pocket Radar...")
-    
-    # Tracking Nifty, BankNifty, and BTC
-    watchlist = {
-        "Nifty 50 Index": "^NSEI",
-        "Bank Nifty Index": "^NSEBANK",
-        "Bitcoin (USD)": "BTC-USD"
+        if diff == 0:
+            return None
+
+        current     = df.iloc[-1]
+        close       = float(current["Close"])
+        low         = float(current["Low"])
+        high        = float(current["High"])
+        ema_200     = float(current["EMA_200"])
+
+        setup = None
+
+        if close > ema_200:
+            fib_618  = swing_high - (diff * 0.618)
+            fib_680  = swing_high - (diff * 0.680)
+            fib_786  = swing_high - (diff * 0.786)
+            if fib_680 <= low <= fib_618:
+                setup = {
+                    "direction":   "BULLISH",
+                    "action":      "Buy the Dip",
+                    "color":       5763719,
+                    "zone_low":    fib_680,
+                    "zone_high":   fib_618,
+                    "sl":          fib_786,
+                    "spot":        close,
+                    "ema":         ema_200,
+                    "swing_high":  swing_high,
+                    "swing_low":   swing_low,
+                }
+
+        elif close < ema_200:
+            fib_618  = swing_low + (diff * 0.618)
+            fib_680  = swing_low + (diff * 0.680)
+            fib_786  = swing_low + (diff * 0.786)
+            if fib_618 <= high <= fib_680:
+                setup = {
+                    "direction":   "BEARISH",
+                    "action":      "Sell the Rally",
+                    "color":       15548997,
+                    "zone_low":    fib_618,
+                    "zone_high":   fib_680,
+                    "sl":          fib_786,
+                    "spot":        close,
+                    "ema":         ema_200,
+                    "swing_high":  swing_high,
+                    "swing_low":   swing_low,
+                }
+
+        return setup
+
+    except Exception as e:
+        print(f"Fib calc error ({ticker}): {e}")
+        return None
+
+def send_alert(item, setup):
+    c  = item["currency"]
+    now_ist = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y, %I:%M %p IST")
+
+    # Risk/reward estimate
+    entry_mid = (setup["zone_low"] + setup["zone_high"]) / 2
+    sl_dist   = abs(entry_mid - setup["sl"])
+    if setup["direction"] == "BULLISH":
+        target    = entry_mid + (sl_dist * 2)  # 1:2 R:R
+    else:
+        target    = entry_mid - (sl_dist * 2)
+
+    embed = {
+        "title":       f"🎯 Fib Sniper · {item['name']}",
+        "description": (
+            f"**{setup['action']}** · 0.618–0.68 Golden Pocket + 200 EMA confluence\n"
+            f"Spot: **{c}{setup['spot']:,.2f}** · 200 EMA: **{c}{setup['ema']:,.2f}**"
+        ),
+        "color": setup["color"],
+        "fields": [
+            {"name": "🟡 Entry Zone",      "value": f"{c}{setup['zone_low']:,.2f} – {c}{setup['zone_high']:,.2f}", "inline": True},
+            {"name": "🎯 Target (1:2 R:R)","value": f"{c}{target:,.2f}",   "inline": True},
+            {"name": "🛑 Stop Loss",       "value": f"{c}{setup['sl']:,.2f} (78.6% level)", "inline": True},
+            {"name": "📐 Swing Range",     "value": f"H: {c}{setup['swing_high']:,.2f}  ·  L: {c}{setup['swing_low']:,.2f}", "inline": False},
+            {"name": "📌 Logic",           "value": "Price pulled into the 61.8–68% value area while trend is intact above/below 200 EMA. Trade invalidates if 78.6% level breaks.", "inline": False},
+        ],
+        "footer": {"text": f"Bade Sahab · Fib Sniper · {now_ist}"}
     }
 
-    for name, ticker in watchlist.items():
-        sniper = GoldenPocketSniper(ticker, name)
-        setup = sniper.fetch_and_calculate()
-        
+    try:
+        requests.post(DISCORD_WEBHOOK, json={"embeds": [embed]}, timeout=10)
+        print(f"Fib alert sent: {item['name']} {setup['direction']}")
+    except Exception as e:
+        print(f"Discord send failed: {e}")
+
+def main():
+    ist = ZoneInfo("Asia/Kolkata")
+    if datetime.now(ist).weekday() >= 5:
+        print("Weekend — Fib Sniper skipped.")
+        return
+
+    conn   = psycopg2.connect(DB_URL)
+    cursor = conn.cursor()
+
+    for item in WATCHLIST:
+        ticker = item["ticker"]
+        setup  = calculate_setup(ticker)
+
         if setup:
-            sniper.alert_discord(setup)
+            if was_recently_alerted(cursor, ticker):
+                print(f"{item['name']}: Golden Pocket active but cooldown in effect.")
+                continue
+            send_alert(item, setup)
+            log_alert(conn, cursor, ticker, setup["direction"])
         else:
-            print(f"No Golden Pocket entry for {name} currently.")
+            print(f"{item['name']}: No Golden Pocket setup currently.")
+
+    cursor.close()
+    conn.close()
 
 if __name__ == "__main__":
     main()
