@@ -1,8 +1,6 @@
+import urllib.parse
+import json
 import yfinance as yf
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-import matplotlib.gridspec as gridspec
-import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -10,102 +8,102 @@ TICKER_NAMES = {
     "^NSEI":    "Nifty 50",
     "^NSEBANK": "Bank Nifty",
     "^INDIAVIX":"India VIX",
-    "BTC-USD":  "Bitcoin (USD)",
+    "BTC-USD":  "Bitcoin",
     "BZ=F":     "Brent Crude",
-    "INR=X":    "USD/INR",
 }
 
 def create_entry_chart(ticker="^NSEI", direction="BULLISH", spot_price=0.0):
+    """
+    Returns a QuickChart URL instead of a local file.
+    Discord embeds this as an image — no attachment, notification shows correctly.
+    """
     try:
         data = yf.Ticker(ticker).history(period="5d", interval="15m")
         if data.empty or spot_price == 0.0:
             return None
 
-        # ── Colors ────────────────────────────────────────────────────────────
-        dir_upper = direction.upper()
-        entry_color = (
-            "#00E676" if dir_upper == "BULLISH" else
-            "#FF1744" if dir_upper == "BEARISH" else
+        # Sample down to ~40 points so URL stays short
+        step    = max(1, len(data) // 40)
+        sampled = data.iloc[::step].tail(40)
+
+        labels = [
+            ts.astimezone(ZoneInfo("Asia/Kolkata")).strftime("%d %b %H:%M")
+            for ts in sampled.index
+        ]
+        prices = [round(float(p), 2) for p in sampled["Close"]]
+
+        line_color = (
+            "#00E676" if direction.upper() == "BULLISH" else
+            "#FF1744" if direction.upper() == "BEARISH" else
             "#FFEA00"
         )
 
-        # ── Layout: price + volume ─────────────────────────────────────────────
-        plt.style.use("dark_background")
-        fig = plt.figure(figsize=(11, 6), facecolor="#0D1117")
-        gs  = gridspec.GridSpec(2, 1, height_ratios=[3, 1], hspace=0.08)
-        ax1 = fig.add_subplot(gs[0])
-        ax2 = fig.add_subplot(gs[1], sharex=ax1)
+        ticker_name = TICKER_NAMES.get(ticker, ticker.replace(".NS","").replace("^",""))
+        now_ist     = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d %b, %I:%M %p IST")
 
-        # ── Price line ─────────────────────────────────────────────────────────
-        ax1.plot(data.index, data["Close"], color="#00E5FF", linewidth=1.5, zorder=3)
-        ax1.fill_between(data.index, data["Close"], data["Close"].min(),
-                         alpha=0.08, color="#00E5FF")
+        chart_config = {
+            "type": "line",
+            "data": {
+                "labels": labels,
+                "datasets": [{
+                    "label": f"{ticker_name} · {now_ist}",
+                    "data": prices,
+                    "borderColor": line_color,
+                    "backgroundColor": line_color + "18",
+                    "borderWidth": 2,
+                    "pointRadius": 0,
+                    "fill": True,
+                    "tension": 0.3,
+                }]
+            },
+            "options": {
+                "plugins": {
+                    "legend": {"labels": {"color": "#CCCCCC", "font": {"size": 11}}},
+                    "annotation": {
+                        "annotations": [{
+                            "type":        "line",
+                            "yMin":        spot_price,
+                            "yMax":        spot_price,
+                            "borderColor": "#FFFFFF",
+                            "borderWidth": 1,
+                            "borderDash":  [5, 5],
+                            "label": {
+                                "content": f"Entry ₹{spot_price:,.2f}",
+                                "enabled": True,
+                                "color":   "#FFFFFF",
+                                "font":    {"size": 10}
+                            }
+                        }]
+                    }
+                },
+                "scales": {
+                    "x": {
+                        "ticks": {
+                            "color":    "#888888",
+                            "maxTicksLimit": 6,
+                            "font":     {"size": 9}
+                        },
+                        "grid": {"color": "#333333"}
+                    },
+                    "y": {
+                        "ticks": {"color": "#888888", "font": {"size": 9}},
+                        "grid":  {"color": "#333333"}
+                    }
+                },
+                "backgroundColor": "#0D1117"
+            }
+        }
 
-        # ── Entry dot + label ──────────────────────────────────────────────────
-        last_time  = data.index[-1]
-        price_range = data["Close"].max() - data["Close"].min()
-        label_offset = price_range * 0.06
+        config_str   = json.dumps(chart_config, separators=(",", ":"))
+        encoded      = urllib.parse.quote(config_str)
+        chart_url    = f"https://quickchart.io/chart?c={encoded}&w=800&h=400&bkg=%230D1117"
 
-        ax1.scatter(last_time, spot_price,
-                    color=entry_color, s=160, zorder=5,
-                    edgecolors="white", linewidths=1.5)
+        # QuickChart has a URL length limit (~16KB). If too long, return None gracefully.
+        if len(chart_url) > 15000:
+            print(f"Chart URL too long for {ticker}, skipping chart.")
+            return None
 
-        # Smart label placement — above if price in lower half, below if upper
-        mid = (data["Close"].max() + data["Close"].min()) / 2
-        y_offset = label_offset if spot_price < mid else -label_offset * 2.5
-
-        ax1.annotate(
-            f"ENTRY\n₹{spot_price:,.2f}",
-            xy=(last_time, spot_price),
-            xytext=(0, y_offset),
-            textcoords="offset points",
-            color="white",
-            fontsize=8,
-            fontweight="bold",
-            ha="center",
-            bbox=dict(boxstyle="round,pad=0.4", fc=entry_color, ec="white", alpha=0.4)
-        )
-
-        # ── Volume bars ────────────────────────────────────────────────────────
-        if "Volume" in data.columns and data["Volume"].sum() > 0:
-            vol_colors = [
-                "#00E676" if c >= o else "#FF1744"
-                for c, o in zip(data["Close"], data["Open"])
-            ]
-            ax2.bar(data.index, data["Volume"], color=vol_colors, alpha=0.6, width=0.006)
-            ax2.set_ylabel("Volume", color="#888888", fontsize=7)
-            ax2.tick_params(axis="y", labelcolor="#888888", labelsize=6)
-        else:
-            ax2.set_visible(False)
-
-        # ── Formatting ─────────────────────────────────────────────────────────
-        ticker_name = TICKER_NAMES.get(ticker, ticker.replace(".NS", "").replace("^", ""))
-        now_ist     = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y, %I:%M %p IST")
-
-        ax1.set_title(
-            f"{ticker_name}  ·  5D / 15m  ·  {now_ist}",
-            color="white", pad=12, fontsize=12, fontweight="bold"
-        )
-        ax1.set_ylabel("Price (₹)", color="#888888", fontsize=8)
-        ax1.tick_params(colors="#888888", labelsize=7)
-        ax1.grid(True, linestyle="--", alpha=0.15)
-        ax1.set_facecolor("#0D1117")
-
-        ax2.set_facecolor("#0D1117")
-        ax2.grid(True, linestyle="--", alpha=0.1)
-        ax2.tick_params(colors="#888888", labelsize=6)
-
-        plt.setp(ax1.get_xticklabels(), visible=False)
-        ax2.xaxis.set_major_formatter(mdates.DateFormatter("%b %d\n%H:%M"))
-        plt.xticks(rotation=0, color="#888888", fontsize=6)
-
-        # ── Unique filename to avoid race conditions ───────────────────────────
-        safe_ticker = ticker.replace("^", "").replace(".", "_").replace("=", "")
-        filepath    = f"chart_{safe_ticker}_{datetime.now().strftime('%H%M%S')}.png"
-
-        plt.savefig(filepath, dpi=120, facecolor=fig.get_facecolor(), bbox_inches="tight")
-        plt.close()
-        return filepath
+        return chart_url
 
     except Exception as e:
         print(f"Chart error ({ticker}): {e}")

@@ -291,19 +291,13 @@ def send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level, ta
 
     # ── Send ───────────────────────────────────────────────────────────────────
     try:
-        if chart_path and os.path.exists(chart_path):
-            embed["image"] = {"url": f"attachment://{os.path.basename(chart_path)}"}
-            with open(chart_path, "rb") as f:
-                requests.post(
-                    target_webhook,
-                    data={"payload_json": json.dumps({"embeds": [embed]})},
-                    files={"file": (os.path.basename(chart_path), f, "image/png")}
-                )
-            os.remove(chart_path)
-        else:
-            requests.post(target_webhook, json={"embeds": [embed]})
-    except Exception as e:
-        print(f"Failed to send alert: {e}")
+        chart_url = chart_generator.create_entry_chart(chart_ticker, nifty_dir, chart_spot)
+        if chart_url:
+            embed["image"] = {"url": chart_url}
+        requests.post(target_webhook, json={"embeds": [embed]})
+    except Exception as exc:
+        print(f"Failed to send embed: {exc}")
+
 
 def main():
     conn = init_database()
