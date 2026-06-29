@@ -22,4 +22,5 @@ jobs:
         env:
           # Pulls the exact same webhook you added earlier today
           DISCORD_WEBHOOK_INTRADAY: ${{ secrets.DISCORD_WEBHOOK_INTRADAY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python fib_sniper.py
