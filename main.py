@@ -288,10 +288,28 @@ def send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level, ta
         "HEAVYWEIGHT": WEBHOOK_HEAVYWEIGHT,
     }.get(region, WEBHOOK_INDIAN) or WEBHOOK_INDIAN
 
+    # Discord requires all field values to be non-empty
+    for field in embed["fields"]:
+        if not field.get("value") or str(field["value"]).strip() == "":
+            field["value"] = "—"
+
+    # Check total embed length
+    total_len = len(embed.get("title","")) + len(embed.get("description",""))
+    for field in embed["fields"]:
+        total_len += len(field.get("name","")) + len(field.get("value",""))
+    if total_len > 5900:
+        # Trim context field if too long
+        for field in embed["fields"]:
+            if field["name"] == "📌 Context":
+                field["value"] = field["value"][:200] + "…"
+                break
+
     # Send
     try:
         r = requests.post(target_webhook, json={"embeds": [embed]}, timeout=10)
         print(f"Alert sent: {event_name} → {region} | HTTP {r.status_code}")
+        if r.status_code not in (200, 204):
+            print(f"Discord error body: {r.text}")  # ← this will show exact reason
     except Exception as exc:
         print(f"Failed to send alert: {exc}")
 
