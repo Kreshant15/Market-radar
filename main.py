@@ -10,7 +10,6 @@ from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 import news_fetcher
 import analyzer
-import chart_generator
 
 load_dotenv()
 DB_URL = os.getenv("DATABASE_URL")
@@ -272,15 +271,6 @@ def send_discord_alert(headline, data, nifty_spot, banknifty_spot, vix_level, ta
     }
 
     # Chart — one call, URL-based, no file attachment
-    chart_ticker = ticker if ticker not in ('NONE', 'N/A', '', None) else "^NSEI"
-    chart_spot   = target_spot if ticker not in ('NONE', 'N/A', '', None) else nifty_spot
-    if chart_spot > 0:
-        try:
-            chart_url = chart_generator.create_entry_chart(chart_ticker, nifty_dir, chart_spot)
-            if chart_url:
-                embed["image"] = {"url": chart_url}
-        except Exception as chart_err:
-            print(f"Chart generation failed (non-fatal): {chart_err}")
 
     # Webhook routing
     target_webhook = {
