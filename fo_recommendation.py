@@ -216,6 +216,28 @@ def send_fo_report(embeds):
     except Exception as e:
         print(f"F&O send failed: {e}")
 
+def ensure_tables(cursor, conn):
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS oi_snapshots (
+            id SERIAL PRIMARY KEY,
+            symbol TEXT,
+            spot NUMERIC,
+            expiry TEXT,
+            pcr NUMERIC,
+            max_pain NUMERIC,
+            total_ce_oi BIGINT,
+            total_pe_oi BIGINT,
+            top_ce_walls JSONB,
+            top_pe_walls JSONB,
+            ce_buildup JSONB,
+            pe_buildup JSONB,
+            oi_bias TEXT,
+            oi_read TEXT,
+            timestamp TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    conn.commit()
+
 def main():
     ist = ZoneInfo("Asia/Kolkata")
     now = datetime.now(ist)
@@ -225,11 +247,11 @@ def main():
         return
 
     print(f"F&O Recommendation Engine starting — {now.strftime('%H:%M IST')}")
-
     conn   = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
 
-    # Pull OI for all three indices
+    ensure_tables(cursor, conn)  # ← The function is called here!
+
     oi_data_list = [
         fetch_latest_oi(cursor, "NIFTY"),
         fetch_latest_oi(cursor, "BANKNIFTY"),

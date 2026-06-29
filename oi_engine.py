@@ -33,31 +33,22 @@ def get_nse_session():
         print(f"NSE session warmup warning: {e}")
     return session
 
-def fetch_option_chain(session, symbol="NIFTY"):
-    """Fetches raw options chain from NSE for NIFTY, BANKNIFTY, or SENSEX."""
-    # BSE handles SENSEX options chain differently
-    if symbol == "SENSEX":
-        url = "https://api.bseindia.com/BseIndiaAPI/api/OptionChain/w?scripcode=1&expirydate="
-        try:
-            r = session.get(url, timeout=15)
-            if r.status_code == 200:
-                return r.json()
-        except Exception as e:
-            print(f"BSE fetch error for SENSEX: {e}")
-        return None
+from jugaad_data.nse import NSELive
 
-    url = f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}"
-    for attempt in range(3):
-        try:
-            r = session.get(url, timeout=15)
-            if r.status_code == 200:
-                return r.json()
-            print(f"NSE returned {r.status_code} for {symbol}, retrying...")
-            time.sleep(3)
-        except Exception as e:
-            print(f"Fetch error ({symbol}, attempt {attempt+1}): {e}")
-            time.sleep(3)
-    return None
+def fetch_option_chain(session, symbol="NIFTY"):
+    try:
+        n = NSELive()
+        if symbol == "NIFTY":
+            return n.equities_option_chain("NIFTY")
+        elif symbol == "BANKNIFTY":
+            return n.equities_option_chain("BANKNIFTY")
+        elif symbol == "SENSEX":
+            # SENSEX is BSE — jugaad doesn't cover it, skip for now
+            print("SENSEX: BSE not supported via jugaad, skipping.")
+            return None
+    except Exception as e:
+        print(f"jugaad fetch error ({symbol}): {e}")
+        return None
 
 def parse_option_chain(data, symbol="NIFTY"):
     """
@@ -300,23 +291,19 @@ def send_oi_report(embeds):
 def main():
     ist = ZoneInfo("Asia/Kolkata")
     now = datetime.now(ist)
-
-    # Only run on weekdays
     if now.weekday() >= 5:
         print("Weekend — OI engine skipped.")
         return
 
     print(f"OI Engine starting — {now.strftime('%H:%M IST')}")
-    session = get_nse_session()
 
     symbols = ["NIFTY", "BANKNIFTY", "SENSEX"]
     embeds  = []
 
     for symbol in symbols:
         print(f"Fetching {symbol} options chain...")
-        raw    = fetch_option_chain(session, symbol)
+        raw    = fetch_option_chain(None, symbol)  # session=None, jugaad handles it
         parsed = parse_option_chain(raw, symbol)
-
         if parsed:
             save_oi_snapshot(parsed)
             embed = build_oi_embed(parsed)
@@ -325,8 +312,7 @@ def main():
             print(f"{symbol}: PCR={parsed['pcr']} | Max Pain={parsed['max_pain']} | Bias={parsed['oi_bias']}")
         else:
             print(f"{symbol}: Failed to parse data.")
-
-        time.sleep(2)  # Be polite to NSE between requests
+        time.sleep(2)
 
     send_oi_report(embeds)
     print("OI Engine complete.")
